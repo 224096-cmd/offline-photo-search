@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.8.1</title>
+<title>オフライン画像・文書 意味検索 v0.9</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
 :root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
@@ -60,7 +62,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.8.1 — カメラ画面が常時表示になる不具合の修正</p>
+<p class="sub">v0.9 — オフライン対応（初回取得後は機内モードでも動作）＋ホーム画面インストール対応</p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
@@ -133,7 +135,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
   <ul class="diag" id="diagList"></ul>
 </details>
 
-<footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
+<footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>モデル等の初回取得が済んだ機能は、機内モードでも動作します（オフライン対応）。<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
 </main>
 
 <!-- アプリ内カメラ（無音撮影） -->
@@ -328,8 +330,14 @@ $("addBtn").addEventListener("click", async () => {
   setStatus("✅ 追加しました（計 " + state.docs.length + " 件）", "ok");
 });
 $("sampleBtn").addEventListener("click", async () => {
-  for (const s of SAMPLES) await addTextDoc(s);
-  setStatus("✅ サンプル8件を投入しました。", "ok");
+  const existing = new Set(state.docs.map((d) => (d.text || "").trim()));
+  let added = 0, skipped = 0;
+  for (const s of SAMPLES) {
+    if (existing.has(s)) { skipped++; continue; }
+    await addTextDoc(s);
+    added++;
+  }
+  setStatus("✅ サンプルを投入：追加 " + added + " 件" + (skipped ? "・重複スキップ " + skipped + " 件" : "") + "。", "ok");
 });
 $("clearBtn").addEventListener("click", async () => {
   if (!confirm("登録した文書・写真をすべて削除します。よろしいですか？")) return;
@@ -790,7 +798,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.8.1",
+    app: "offline-photo-search v0.9",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
@@ -840,7 +848,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v081.csv";
+  a.download = "ocr-search-v09.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -859,6 +867,7 @@ async function diagRun() {
   catch (e) { row("WebGPU", "エラー: " + e.message); }
   row("WebAssembly", typeof WebAssembly === "object" ? "対応" : "非対応");
   row("カメラAPI", (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? "対応" : "非対応");
+  row("オフライン用Service Worker", ("serviceWorker" in navigator) ? (navigator.serviceWorker.controller ? "有効（このページはオフライン対応済み）" : "登録済み（次回の表示から有効）") : "非対応");
   try { const est = await navigator.storage.estimate(); row("ストレージ割当の目安", Math.round((est.quota || 0) / 1048576) + " MB（使用中 " + Math.round((est.usage || 0) / 1048576) + " MB）"); }
   catch (e) { row("ストレージ割当の目安", "取得不可"); }
   row("表示モード", window.matchMedia("(display-mode: standalone)").matches ? "ホーム画面から起動（PWA）" : "ブラウザ内で表示");
@@ -874,6 +883,10 @@ $("diagRun").addEventListener("click", diagRun);
   }
   renderDocs();
   updateVecMeta();
+  // オフライン対応（Service Worker）の登録。失敗しても通常動作には影響しない
+  if ("serviceWorker" in navigator) {
+    try { navigator.serviceWorker.register("./sw.js"); } catch (e) {}
+  }
 })();
 </script>
 </body>
