@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.9</title>
+<title>オフライン画像・文書 意味検索 v0.10</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
@@ -62,7 +62,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.9 — オフライン対応（初回取得後は機内モードでも動作）＋ホーム画面インストール対応</p>
+<p class="sub">v0.10 — 精度評価ベンチ内蔵（RQ3）＋DL型OCR「PP-OCR系」接続（RQ2）</p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
@@ -77,10 +77,10 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
   <input type="file" id="fileImgs" accept="image/*" multiple hidden>
   <span class="lbl">OCRエンジン</span>
   <select id="selOcr">
-    <option value="tesseract" selected>Tesseract.js（軽量・本版で対応）</option>
-    <option value="paddle" disabled>PP-OCR系（主力・次版で接続）</option>
+    <option value="tesseract" selected>Tesseract.js（軽量・オフライン可）</option>
+    <option value="ppu">PP-OCR系・DL型（ppu-paddle-ocr／実験的・初回オンライン必須）</option>
   </select>
-  <p class="meta">初回は日本語の認識データ（数MB〜十数MB）をダウンロードします。1枚あたり数秒〜20秒。読み取れた文字が4文字未満の写真は「文字なし」と判定し、検索対象から外して保管します。カメラの映像・写真は端末の外へ送信しません。</p>
+  <p class="meta">初回は認識用データをダウンロードします（Tesseract＝数MB〜十数MB、PP-OCR系＝数十MB）。1枚あたり数秒〜20秒。読み取れた文字が4文字未満の写真は「文字なし」と判定し、検索対象から外して保管します。同じ写真をエンジンを切り替えて読み直すと、精度・速度の比較（RQ2）ができます。カメラの映像・写真は端末の外へ送信しません。</p>
   <span class="lbl">テキストを直接追加（メモなど）</span>
   <textarea id="newDoc" placeholder="例：保護者の皆様へ：明日の遠足には…"></textarea>
   <button id="addBtn" class="ghost" type="button">このテキストを追加</button>
@@ -122,11 +122,20 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
   <div id="result"></div>
 </div>
 
-<h2>④ 計測結果を書き出す</h2>
+<h2>④ 精度評価（ミニベンチ・RQ3用）</h2>
+<div class="card">
+  <p class="meta" id="benchMeta">内蔵評価セット「学校文書ミニベンチ v1」：文書20件・質問15問（言い換え中心）。現在の「検索方式」で一括実行し、正解文書が何位に出たかを集計します（①で登録した文書とは独立に動きます）。</p>
+  <button id="benchBtn" type="button">この方式・モデルでベンチを実行</button>
+  <button id="evalLoadBtn" class="ghost" type="button">評価セットJSONを読み込んで差し替え</button>
+  <input type="file" id="evalFile" accept=".json,application/json" hidden>
+  <div id="benchResult"></div>
+</div>
+
+<h2>⑤ 計測結果を書き出す</h2>
 <div class="card">
   <button id="copyJson" class="ghost" type="button">結果をコピー（JSON・チャット貼り付け用）</button>
   <button id="dlCsv" class="ghost" type="button">CSVをダウンロード（卒論の表づくり用）</button>
-  <p class="meta">文書数・OCR計測・モデル・検索結果・中断記録を書き出します。</p>
+  <p class="meta">文書数・OCR計測・モデル・検索結果・ベンチ結果（④）・中断記録を書き出します。</p>
 </div>
 
 <details>
@@ -177,10 +186,12 @@ const NOTES = {
 // ===== 状態 =====
 const state = {
   docs: [], extractor: null, loadedKey: null, device: null, dtype: null,
-  loadMs: null, warmupMs: null, embedMs: [], lastSearch: null,
+  loadMs: null, warmupMs: null, embedMs: [], lastSearch: null, lastEval: null,
   error: null, lastInterrupted: null
 };
-const OCR = { createWorker: null, worker: null, loadMs: null, items: [] };
+const OCR = { createWorker: null, worker: null, loadMs: null, ppu: null, ppuLoadMs: null, items: [] };
+const OCR_LABEL = { tesseract: "Tesseract.js", ppu: "PP-OCR系(ppu)" };
+function currentOcr() { return $("selOcr").value; }
 const CAM = { stream: null, track: null, hwZoom: false, zoom: 1 };
 
 // ===== 中断検知 =====
@@ -386,19 +397,54 @@ async function getTessWorker() {
   return OCR.worker;
 }
 
+// DL型OCR（ppu-paddle-ocr）の読み込み。既定のv6モデルは日本語を含む多言語対応
+async function getPpu() {
+  if (OCR.ppu) return OCR.ppu;
+  setPhase("OCRエンジン読み込み（PP-OCR系・ppu-paddle-ocr）");
+  setStatus("DL型OCRエンジンを読み込み中（初回はモデル数十MBをダウンロード。オンライン必須）…");
+  camSay("DL型OCRを読み込み中…");
+  const t0 = performance.now();
+  const mod = await import("https://cdn.jsdelivr.net/npm/ppu-paddle-ocr/web/+esm");
+  const Svc = mod.PaddleOcrService || (mod.default && mod.default.PaddleOcrService);
+  if (!Svc) throw new Error("ppu-paddle-ocr の読み込み形式が想定外です（PaddleOcrService が見つかりません）。この文面を貼ってください。");
+  const svc = new Svc({ session: { executionProviders: ["wasm"] } });
+  await svc.initialize();
+  OCR.ppu = svc;
+  OCR.ppuLoadMs = Math.round(performance.now() - t0);
+  clearPhase();
+  return svc;
+}
+
+// エンジン別の文字認識。{ raw, conf } を返す
+async function recognizeImage(engine, canvas) {
+  if (engine === "ppu") {
+    const svc = await getPpu();
+    const r = await svc.recognize(canvas);
+    let raw = "";
+    if (r && typeof r.text === "string") raw = r.text;
+    else if (r && Array.isArray(r.text)) raw = r.text.join(" ");
+    else if (Array.isArray(r)) raw = r.map((x) => (x && x.text) || "").join(" ");
+    return { raw: raw, conf: null };
+  }
+  const w = await getTessWorker();
+  const r = await w.recognize(canvas);
+  const raw = (r && r.data && r.data.text) ? r.data.text : "";
+  const conf = (r && r.data && typeof r.data.confidence === "number") ? Math.round(r.data.confidence) : null;
+  return { raw: raw, conf: conf };
+}
+
 // 画像1枚（canvas）→ OCR → 判定 → 保存。ファイル・カメラ共通の処理
 async function processCanvas(canvas, thumb, name) {
-  const w = await getTessWorker();
+  const engine = currentOcr();
   const t0 = performance.now();
-  const r = await w.recognize(canvas);
+  const rec = await recognizeImage(engine, canvas);
   const ms = Math.round(performance.now() - t0);
-  const raw = (r && r.data && r.data.text) ? r.data.text : "";
-  const text = raw.replace(/\s+/g, " ").trim();
+  const text = rec.raw.replace(/\s+/g, " ").trim();
   const clean = text.replace(/[\s　]/g, "");
-  const conf = (r && r.data && typeof r.data.confidence === "number") ? Math.round(r.data.confidence) : null;
+  const conf = rec.conf;
   const judged = clean.length >= 4; // 文字有無の簡易判定（適応分岐）
-  OCR.items.push({ name: name, ms: ms, chars: clean.length, conf: conf, judged: judged });
-  const doc = { id: newId(), type: "image", text: judged ? text : "", thumb: thumb, ocr: { engine: "tesseract", ms: ms, chars: clean.length, conf: conf, judged: judged }, createdAt: new Date().toISOString(), vecs: {} };
+  OCR.items.push({ name: name, engine: engine, ms: ms, chars: clean.length, conf: conf, judged: judged });
+  const doc = { id: newId(), type: "image", text: judged ? text : "", thumb: thumb, ocr: { engine: engine, ms: ms, chars: clean.length, conf: conf, judged: judged }, createdAt: new Date().toISOString(), vecs: {} };
   await dbPut(doc);
   state.docs.push(doc);
   if (judged && state.extractor && state.loadedKey) {
@@ -447,7 +493,7 @@ async function importImages(files) {
   let ok = 0, noText = 0, fail = 0;
   for (let i = 0; i < files.length; i++) {
     try {
-      setPhase("OCR " + (i + 1) + "/" + files.length + "（Tesseract.js）");
+      setPhase("OCR " + (i + 1) + "/" + files.length + "（" + (OCR_LABEL[currentOcr()] || currentOcr()) + "）");
       setStatus("写真を処理中 " + (i + 1) + "/" + files.length + "（" + (files[i].name || "画像") + "）… 1枚あたり数秒〜20秒。画面を切り替えないでください。");
       const { canvas, thumb } = await fileToCanvases(files[i]);
       const res = await processCanvas(canvas, thumb, files[i].name || "画像");
@@ -775,7 +821,7 @@ async function runSearch() {
     $("result").innerHTML =
       '<p class="meta">方式: ' + label + " ／ 対象 " + searchableDocs().length + " 件 ／ 所要 " + took + " ms " + extra + "</p>" +
       "<table><tr><th>スコア</th><th>文書</th></tr>" + rows + "</table>";
-    setStatus("✅ 検索完了（" + label + "）。④で結果を書き出せます。", "ok");
+    setStatus("✅ 検索完了（" + label + "）。⑤で結果を書き出せます。", "ok");
   } catch (e) {
     clearPhase();
     state.error = String(e && e.message ? e.message : e);
@@ -785,6 +831,178 @@ async function runSearch() {
   }
 }
 $("searchBtn").addEventListener("click", runSearch);
+
+// ===== 精度評価（ミニベンチ：RQ3用） =====
+const EVAL_DEFAULT = {
+  name: "学校文書ミニベンチ v1（内蔵）",
+  docs: [
+    { id: "d01", text: "遠足のお知らせ：10月24日に動物園へ行きます。水筒・雨具・弁当を持参し、8時30分に体育館前へ集合してください。" },
+    { id: "d02", text: "調理実習の準備：エプロン、三角巾、ふきん2枚、米1合を忘れずに持ってくること。" },
+    { id: "d03", text: "技術科 ボール盤の使い方：材料に合わせて回転数を設定し、保護メガネを必ず着用する。切りくずは手で払わない。" },
+    { id: "d04", text: "理科実験ノート：うすい塩酸に亜鉛を入れると水素が発生した。マッチの火を近づけるとポンと音がした。" },
+    { id: "d05", text: "数学ノート：二次関数 y=ax^2+bx+c は平方完成で頂点の座標を求められる。" },
+    { id: "d06", text: "持久走大会の案内：11月第2週に開催。体操服・水筒を持参。雨天時は翌週に延期。" },
+    { id: "d07", text: "国語の授業メモ：走れメロスの主題は友情と信頼。メロスはセリヌンティウスを人質に残して王のもとへ走った。" },
+    { id: "d08", text: "社会の年号メモ：鎌倉幕府の成立は1192年ではなく1185年とする説が有力。" },
+    { id: "d09", text: "保健だより：インフルエンザが流行しています。手洗い・うがい・十分な睡眠を心がけましょう。" },
+    { id: "d10", text: "技術科 木材加工：のこぎりは引くときに力を入れる。けがき線に沿ってまっすぐ切る。" },
+    { id: "d11", text: "修学旅行のしおり：2日目は班別自主研修。集合時刻に遅れた場合は担任へ電話連絡すること。" },
+    { id: "d12", text: "はんだ付けの注意：こて先は350度前後に保つ。やけどに注意し、換気をしながら作業する。" },
+    { id: "d13", text: "美術の課題：風景画を水彩で描く。提出は来週金曜日まで。画用紙は教室後ろの棚にある。" },
+    { id: "d14", text: "プログラミング実習：micro:bitで温度センサーの値を読み取り、LEDに表示するプログラムを作成した。" },
+    { id: "d15", text: "給食だより：今月の献立にアレルギー対応食があります。該当する生徒は事前に申し出てください。" },
+    { id: "d16", text: "部活動連絡：野球部は土曜日の練習試合のため7時に学校集合。ユニフォームと帽子を忘れずに。" },
+    { id: "d17", text: "進路だより：三者面談を11月に実施します。希望日時を今週中に担任へ提出してください。" },
+    { id: "d18", text: "図書室からのお知らせ：返却期限を過ぎた本が多数あります。今週中に返却してください。" },
+    { id: "d19", text: "技術科 製図の基本：第三角法では正面図・平面図・側面図の配置が決まっている。" },
+    { id: "d20", text: "英語の小テスト範囲：不規則動詞の過去形・過去分詞。教科書45ページの表を暗記すること。" }
+  ],
+  queries: [
+    { q: "遠足に何を持っていけばいい？", gold: ["d01"] },
+    { q: "包丁を使う実習で必要なもの", gold: ["d02"] },
+    { q: "穴あけの機械を安全に使うには", gold: ["d03"] },
+    { q: "気体が出てきた実験の記録", gold: ["d04"] },
+    { q: "放物線の一番下の点の求め方", gold: ["d05"] },
+    { q: "長距離を走る行事はいつ？", gold: ["d06"] },
+    { q: "メロスは誰のために走った？", gold: ["d07"] },
+    { q: "幕府ができた年の新しい説", gold: ["d08"] },
+    { q: "かぜをひかないための注意", gold: ["d09"] },
+    { q: "のこぎりで上手に切るコツ", gold: ["d10"] },
+    { q: "班行動で集合に遅れたらどうする？", gold: ["d11"] },
+    { q: "こてを使う作業の適切な温度", gold: ["d12"] },
+    { q: "絵の宿題はいつまでに出す？", gold: ["d13"] },
+    { q: "センサーの値を画面に出すプログラム", gold: ["d14"] },
+    { q: "先生との面談の希望日はどう出す？", gold: ["d17"] }
+  ]
+};
+let EVAL = EVAL_DEFAULT;
+const evalVecs = {}; // modelKey -> { docId: vec }
+
+function bm25Rank(query, docs) {
+  const k1 = 1.2, b = 0.75;
+  const docG = docs.map((d) => grams(d.text));
+  const lens = docG.map((g) => g.length || 1);
+  const avg = lens.reduce((a, x) => a + x, 0) / Math.max(1, lens.length);
+  const qset = Array.from(new Set(grams(query)));
+  const N = docs.length;
+  return docs.map((d, i) => {
+    let score = 0;
+    for (const g of qset) {
+      let tf = 0;
+      for (const x of docG[i]) if (x === g) tf++;
+      if (!tf) continue;
+      let df = 0;
+      for (const gg of docG) if (gg.includes(g)) df++;
+      const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
+      score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (lens[i] / avg)));
+    }
+    return { id: d.id, text: d.text, score: score };
+  }).sort((a, x) => x.score - a.score);
+}
+
+async function runBench() {
+  const method = currentMethod();
+  const emb = method !== "bm25";
+  if (emb && (!state.extractor || state.loadedKey !== method)) {
+    setStatus("このモデルはまだ読み込まれていません。②で「モデルを読み込む」を押してからベンチを実行してください。", "ng");
+    return;
+  }
+  $("benchBtn").disabled = true;
+  const label = method === "bm25" ? "BM25" : MODELS[method].short;
+  try {
+    const tAll = performance.now();
+    if (emb) {
+      const m = MODELS[method];
+      if (!evalVecs[method]) evalVecs[method] = {};
+      const cache = evalVecs[method];
+      const todo = EVAL.docs.filter((d) => !cache[d.id]);
+      for (let i = 0; i < todo.length; i++) {
+        setPhase("ベンチ文書のベクトル化 " + (i + 1) + "/" + todo.length + "（" + m.short + "）");
+        setStatus("ベンチ準備中：文書 " + (i + 1) + "/" + todo.length + " をベクトル化（" + m.short + "）…");
+        const out = await state.extractor([m.dp + todo[i].text], ENC_OPTS);
+        cache[todo[i].id] = toVec(out);
+        free(out);
+        await sleep(20);
+      }
+    }
+    const per = [];
+    const qms = [];
+    for (let i = 0; i < EVAL.queries.length; i++) {
+      const Q = EVAL.queries[i];
+      setPhase("ベンチ実行 " + (i + 1) + "/" + EVAL.queries.length + "（" + label + "）");
+      setStatus("ベンチ実行中 " + (i + 1) + "/" + EVAL.queries.length + "（" + label + "）…");
+      const t0 = performance.now();
+      let ranked;
+      if (emb) {
+        const m = MODELS[method];
+        const out = await state.extractor([m.qp + Q.q], ENC_OPTS);
+        const qv = toVec(out);
+        free(out);
+        ranked = EVAL.docs
+          .map((d) => ({ id: d.id, text: d.text, score: dot(qv, evalVecs[method][d.id]) }))
+          .sort((a, x) => x.score - a.score);
+      } else {
+        ranked = bm25Rank(Q.q, EVAL.docs);
+      }
+      qms.push(Math.round(performance.now() - t0));
+      let rank = ranked.findIndex((r) => Q.gold.indexOf(r.id) >= 0) + 1;
+      if (rank <= 0) rank = EVAL.docs.length + 1;
+      per.push({ q: Q.q, goldRank: rank, top1: ranked[0] ? ranked[0].text.slice(0, 18) : "" });
+      await sleep(10);
+    }
+    clearPhase();
+    const n = per.length;
+    const r1 = per.filter((x) => x.goldRank === 1).length / n;
+    const r3 = per.filter((x) => x.goldRank <= 3).length / n;
+    const mrr = per.reduce((a, x) => a + 1 / x.goldRank, 0) / n;
+    const avgQ = Math.round(qms.reduce((a, x) => a + x, 0) / Math.max(1, qms.length));
+    const totalMs = Math.round(performance.now() - tAll);
+    state.lastEval = {
+      setName: EVAL.name, method: method, label: label,
+      model: emb ? MODELS[method].id : null, device: emb ? state.device : null, dtype: emb ? state.dtype : null,
+      docN: EVAL.docs.length, queryN: n,
+      recall1: Number(r1.toFixed(3)), recall3: Number(r3.toFixed(3)), mrr: Number(mrr.toFixed(3)),
+      avgQueryMs: avgQ, totalMs: totalMs,
+      perQuery: per, at: new Date().toISOString()
+    };
+    const rows = per.map((x) =>
+      '<tr class="' + (x.goldRank === 1 ? "top" : "") + '"><td class="score">' + x.goldRank + "位</td><td>" + escapeHtml(x.q) + '<br><span class="meta">1位: ' + escapeHtml(x.top1) + "…</span></td></tr>"
+    ).join("");
+    $("benchResult").innerHTML =
+      '<p class="meta"><b>' + escapeHtml(label) + "</b>：Recall@1 = " + (r1 * 100).toFixed(0) + "%（正解が1位の割合）／ Recall@3 = " + (r3 * 100).toFixed(0) + "% ／ MRR = " + mrr.toFixed(3) + " ／ 1問あたり " + avgQ + " ms（" + escapeHtml(EVAL.name) + "・" + n + "問）</p>" +
+      "<table><tr><th>正解の順位</th><th>質問</th></tr>" + rows + "</table>";
+    setStatus("✅ ベンチ完了（" + label + "）：Recall@1 " + (r1 * 100).toFixed(0) + "%・MRR " + mrr.toFixed(3) + "。方式を変えてもう一度実行すると比較できます。⑤で書き出せます。", "ok");
+  } catch (e) {
+    clearPhase();
+    state.error = String(e && e.message ? e.message : e);
+    setStatus("❌ ベンチに失敗：" + state.error, "ng");
+  } finally {
+    $("benchBtn").disabled = false;
+  }
+}
+$("benchBtn").addEventListener("click", runBench);
+$("evalLoadBtn").addEventListener("click", () => $("evalFile").click());
+$("evalFile").addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const j = JSON.parse(String(fr.result));
+      if (!j || !Array.isArray(j.docs) || !Array.isArray(j.queries) || !j.docs.length || !j.queries.length) throw new Error("docs / queries の配列が必要です");
+      for (const d of j.docs) if (!d.id || !d.text) throw new Error("docs の各要素に id と text が必要です");
+      for (const q of j.queries) if (!q.q || !Array.isArray(q.gold) || !q.gold.length) throw new Error("queries の各要素に q と gold（配列）が必要です");
+      EVAL = { name: j.name || f.name, docs: j.docs, queries: j.queries };
+      for (const k of Object.keys(evalVecs)) delete evalVecs[k];
+      $("benchMeta").textContent = "読み込んだ評価セット：" + EVAL.name + "（文書 " + EVAL.docs.length + " 件・質問 " + EVAL.queries.length + " 問）。現在の検索方式で一括実行します。";
+      setStatus("✅ 評価セットを差し替えました：" + EVAL.name, "ok");
+    } catch (err) {
+      alert("評価セットを読み込めません：" + err.message);
+    }
+  };
+  fr.readAsText(f);
+});
 
 // ===== 書き出し =====
 function buildReport() {
@@ -798,13 +1016,14 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.9",
+    app: "offline-photo-search v0.10",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
     noTextImages: noText,
     vectorized: counts,
-    ocr: { engine: "tesseract(jpn)", engineLoadMs: OCR.loadMs, avgMsPerImage: ocrAvg, items: OCR.items },
+    ocr: { selectedEngine: currentOcr(), loadMs: { tesseract: OCR.loadMs, ppu: OCR.ppuLoadMs }, avgMsPerImage: ocrAvg, items: OCR.items },
+    evalResult: state.lastEval,
     loadedModel: state.loadedKey ? MODELS[state.loadedKey].id : null,
     device: state.device,
     dtype: state.dtype,
@@ -830,9 +1049,14 @@ $("dlCsv").addEventListener("click", () => {
     ["文書数", r.docCount],
     ["うち写真由来", r.imageDocs],
     ["うち文字なし画像", r.noTextImages],
-    ["OCRエンジン", r.ocr.engine],
-    ["OCR読み込み(ms)", r.ocr.engineLoadMs],
+    ["OCR選択エンジン", r.ocr.selectedEngine],
+    ["OCR読み込み(ms) Tesseract/PP-OCR", String(r.ocr.loadMs.tesseract) + " / " + String(r.ocr.loadMs.ppu)],
     ["OCR平均(ms/枚)", r.ocr.avgMsPerImage],
+    ["ベンチ: 方式", r.evalResult ? r.evalResult.label : "—"],
+    ["ベンチ: Recall@1", r.evalResult ? r.evalResult.recall1 : "—"],
+    ["ベンチ: Recall@3", r.evalResult ? r.evalResult.recall3 : "—"],
+    ["ベンチ: MRR", r.evalResult ? r.evalResult.mrr : "—"],
+    ["ベンチ: 1問あたり(ms)", r.evalResult ? r.evalResult.avgQueryMs : "—"],
     ["読み込み中モデル", r.loadedModel || "なし"],
     ["実行方式", r.device || "—"],
     ["量子化", r.dtype || "—"],
@@ -842,13 +1066,14 @@ $("dlCsv").addEventListener("click", () => {
     ["前回の中断", r.lastInterrupted ? r.lastInterrupted.phase : "なし"],
     ["UserAgent", r.userAgent]
   ];
-  const t1 = [[], ["写真", "OCR時間(ms)", "認識文字数", "確信度", "文字あり判定"]].concat(r.ocr.items.map((x) => [x.name, x.ms, x.chars, x.conf == null ? "" : x.conf, x.judged ? "あり" : "なし"]));
+  const t1 = [[], ["写真", "エンジン", "OCR時間(ms)", "認識文字数", "確信度", "文字あり判定"]].concat(r.ocr.items.map((x) => [x.name, x.engine || "", x.ms, x.chars, x.conf == null ? "" : x.conf, x.judged ? "あり" : "なし"]));
   const t2 = [[], ["順位", "スコア", "文書"]].concat((r.lastSearch ? r.lastSearch.results : []).map((x) => [x.rank, x.score, x.text]));
+  const t3 = [[], ["ベンチ: 質問", "正解の順位"]].concat((r.evalResult ? r.evalResult.perQuery : []).map((x) => [x.q, x.goldRank]));
   const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
-  const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
+  const csv = "﻿" + head.concat(t1, t2, t3).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v09.csv";
+  a.download = "ocr-search-v010.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
