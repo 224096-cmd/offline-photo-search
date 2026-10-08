@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.8</title>
+<title>オフライン画像・文書 意味検索 v0.8.1</title>
 <style>
 :root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
@@ -54,12 +54,13 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 #camOverlay .lbl,#camOverlay .meta{color:#ddd}
 #camOverlay input[type=range]{width:100%}
 #camOverlay button.ghost{color:#fff;border-color:#666}
+#camOverlay[hidden]{display:none}
 </style>
 </head>
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.8 — アプリ内カメラ（無音・ズーム対応）＋OCR修正版</p>
+<p class="sub">v0.8.1 — カメラ画面が常時表示になる不具合の修正</p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
@@ -789,7 +790,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.8",
+    app: "offline-photo-search v0.8.1",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
@@ -839,7 +840,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v08.csv";
+  a.download = "ocr-search-v081.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
