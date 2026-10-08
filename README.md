@@ -4,22 +4,23 @@
 スマートフォンのブラウザだけで動く「完全オフライン意味検索」PWA を開発します。
 
 - 公開URL: https://224096-cmd.github.io/offline-photo-search/
-- 中核モデル: EmbeddingGemma 2（テキスト＋画像。初回のみ Hugging Face から取得し、ブラウザ内に保存）
+- 主構成モデル: EmbeddingGemma 2（初回のみ Hugging Face から取得し、ブラウザ内に保存）
+- 軽量フォールバック: multilingual-e5-small（RQ3 の軽量構成を兼ねる）
 - OCR: PaddleOCR.js（主力）／ Tesseract.js（比較用）
 - 登録した画像・テキスト・ベクトルは端末の外へ一切送信しません（クラウドゼロ送信）
 
 ## 現在の状態
 
-**v0.4** — EmbeddingGemma 2（テキスト）実機検証デモ。類似度計算のバグ修正版。
+**v0.5** — テキスト埋め込みの実機検証デモ（モデル切替つき）。
 
-- **修正**：v0.3 では文プーリング（トークン列を1本の文ベクトルに平均する処理）の指定が漏れており、
-  ベクトル次元が 17、類似度が null になっていた。`pooling: "mean", normalize: true` を指定し、
-  保険として自前の平均・正規化処理と、次元・数値の妥当性チェックを追加。
-- **実機での判明事項（iPhone 17e / iOS 26.6.2）**：
-  - WebGPU＋q4f16 … 動作（読み込み約2秒※キャッシュ後、ウォームアップ約0.1秒、1文あたり約60〜90ms）
-  - WebGPU＋q4 … 類似度計算時にメモリ不足とみられるページ再読み込みが発生
-  - WASM＋q4 … モデル読み込み段階でページ再読み込みが発生
-  - → 本端末での安定構成は **WebGPU＋q4f16**（この比較自体が RQ3・RQ4 の測定データ）
+- モデルを2種から選択可能：
+  - **EmbeddingGemma 2**（主構成・270M。WebGPU時 q4f16=157MB）
+  - **multilingual-e5-small**（軽量・118Mパラメータ。WebGPU時 q4f16=205MB／WASM時 q8=118MB。クエリ接頭辞は `query:`／`passage:` に自動切替）
+- 実機での判明事項（iPhone 17e / iOS 26.6.2・EmbeddingGemma 2）：
+  - WebGPU＋q4f16 … v0.3 で1回完走（1文あたり約60〜90ms）したが、以後はメモリ不足とみられるページ再読み込みが再発。**動作が成功と失敗の境界線上にある**
+  - WebGPU＋q4、WASM＋q4 … 読み込み／推論段階で再読み込み発生
+  - → 本端末の安定運用には軽量モデルの併用が必要（この比較自体が RQ3・RQ4 の測定データ）
+- 中断（ページ再読み込み）の段階を localStorage に自動記録し、再訪時に表示＋書き出しに含める
 
 ※この版はライブラリ（transformers.js）をCDNから、モデルをHugging Faceから取得するため、
 初回はオンラインが必要です。完全オフライン化（自前配信＋Service Workerキャッシュ）は後の版で行います。
@@ -35,6 +36,6 @@
 
 | ファイル | 役割 |
 | --- | --- |
-| `index.html` | アプリ本体（v0.4 は埋め込みモデルの実機検証デモ） |
+| `index.html` | アプリ本体（v0.5 は埋め込みモデルの実機検証デモ・2モデル切替） |
 | `.github/workflows/pages.yml` | GitHub Pages への自動デプロイ設定 |
 | `.nojekyll` | GitHub Pages の Jekyll 処理を無効化 |

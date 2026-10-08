@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.4</title>
+<title>オフライン画像・文書 意味検索 v0.5</title>
 <style>
 :root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
@@ -45,28 +45,33 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.4 — EmbeddingGemma 2 実機検証（類似度計算の修正版）</p>
+<p class="sub">v0.5 — 実機検証（軽量モデル切替つき）</p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">まだモデルを読み込んでいません。Wi-Fi接続で「① モデルを読み込む」を押してください。</div>
 
 <h2>① モデルを読み込む</h2>
 <div class="card">
+  <span class="lbl">モデル</span>
+  <select id="selModel">
+    <option value="eg2" selected>EmbeddingGemma 2（主構成・高性能）</option>
+    <option value="e5s">multilingual-e5-small（軽量・安定重視）</option>
+  </select>
   <span class="lbl">実行方式</span>
   <select id="selDevice">
     <option value="auto" selected>自動（WebGPUが使えればWebGPU）</option>
     <option value="webgpu">WebGPU（GPUで高速）</option>
-    <option value="wasm">WASM（CPU。この端末では落ちやすい）</option>
+    <option value="wasm">WASM（CPU）</option>
   </select>
-  <span class="lbl">量子化（モデルの軽量化形式）</span>
+  <span class="lbl">量子化（モデルの軽量化形式。軽量モデル選択時は自動固定）</span>
   <select id="selDtype">
     <option value="auto" selected>自動（WebGPU→q4f16 ／ WASM→q4）</option>
-    <option value="q4f16">q4f16（最小・約157MB・省メモリ）</option>
-    <option value="q4">q4（標準・約174MB）</option>
-    <option value="q8">q8（高精度・約314MB）</option>
+    <option value="q4f16">q4f16（約157MB・省メモリ）</option>
+    <option value="q4">q4（約174MB）</option>
+    <option value="q8">q8（約314MB）</option>
   </select>
   <button id="loadBtn" type="button">① モデルを読み込む</button>
-  <p class="meta">モデル: onnx-community/embeddinggemma-2-ONNX（テキスト）。この端末（iPhone 17e）では WebGPU＋q4f16 の組み合わせで動作確認済み。他の組み合わせはメモリ不足で落ちることがあります（落ちた記録も自動で残ります）。同じ量子化なら2回目以降は再ダウンロードなし。読み込み中は画面を切り替えないでください。</p>
+  <p class="meta">ダウンロードサイズの目安：EmbeddingGemma 2 … WebGPU時 q4f16=157MB／ 軽量モデル … WebGPU時 q4f16=205MB・WASM時 q8=118MB。同じ組み合わせなら2回目以降は再ダウンロードなし。EmbeddingGemma 2 が落ちる場合は軽量モデルに切り替えてください（どの組み合わせで落ちたかは黄色い表示と③の書き出しに自動記録されます）。</p>
   <pre id="prog" hidden></pre>
 </div>
 
@@ -103,8 +108,27 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
+
+// 使用できるモデルの定義（接頭辞＝モデルが期待する「用途ラベル」）
+const MODELS = {
+  eg2: {
+    id: "onnx-community/embeddinggemma-2-ONNX",
+    short: "EmbeddingGemma 2",
+    qp: "task: search result | query: ",
+    dp: "title: none | text: ",
+    dtypeFor: (device, manual) => (manual && manual !== "auto") ? manual : (device === "webgpu" ? "q4f16" : "q4")
+  },
+  e5s: {
+    id: "Xenova/multilingual-e5-small",
+    short: "multilingual-e5-small",
+    qp: "query: ",
+    dp: "passage: ",
+    dtypeFor: (device) => (device === "webgpu" ? "q4f16" : "q8")
+  }
+};
+
 const state = {
-  extractor: null, device: null, dtype: null, dim: null,
+  extractor: null, modelKey: null, modelId: null, device: null, dtype: null, dim: null,
   loadMs: null, warmupMs: null, items: [], ranking: [],
   error: null, lastInterrupted: null
 };
@@ -120,12 +144,18 @@ function escapeHtml(s) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function free(t) { try { if (t && typeof t.dispose === "function") t.dispose(); } catch (e) {} }
 
-// ---- 文ベクトル化：pooling(平均)＋normalize(長さ1に正規化)を指定し、
-//      万一トークン列のまま返ってきた場合も自前で平均→正規化する（v0.3のバグ対策） ----
+// 軽量モデル選択時は量子化を自動に固定
+$("selModel").addEventListener("change", () => {
+  const isE5 = $("selModel").value === "e5s";
+  if (isE5) $("selDtype").value = "auto";
+  $("selDtype").disabled = isE5;
+});
+
+// ---- 文ベクトル化：pooling(平均)＋normalize(正規化)。保険の自前処理つき ----
 const ENC_OPTS = { pooling: "mean", normalize: true };
 function toVec(out) {
   let v = out.tolist()[0];
-  if (Array.isArray(v) && Array.isArray(v[0])) { // [トークン数][次元] → 平均して1本に
+  if (Array.isArray(v) && Array.isArray(v[0])) {
     const n = v.length, d = v[0].length, m = new Array(d).fill(0);
     for (let i = 0; i < n; i++) { const row = v[i]; for (let j = 0; j < d; j++) m[j] += row[j]; }
     for (let j = 0; j < d; j++) m[j] /= n;
@@ -134,7 +164,7 @@ function toVec(out) {
   let s = 0;
   for (let j = 0; j < v.length; j++) s += v[j] * v[j];
   s = Math.sqrt(s) || 1;
-  for (let j = 0; j < v.length; j++) v[j] = v[j] / s; // 正規化（コサイン類似度＝内積にするため）
+  for (let j = 0; j < v.length; j++) v[j] = v[j] / s;
   return v;
 }
 
@@ -150,7 +180,7 @@ function clearPhase() { try { localStorage.removeItem(PHASE_KEY); } catch (e) {}
     localStorage.removeItem(PHASE_KEY);
     const el = $("crash");
     el.hidden = false;
-    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされたようです（メモリ不足の可能性が高い）。この記録は③の書き出しに自動で含まれます。WebGPU＋q4f16（自動設定）での再試行をおすすめします。";
+    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされました（メモリ不足の可能性大）。この文言をそのままチャットに貼ってください。対処：他のタブ・アプリを閉じる／端末再起動後に再試行／モデルを「軽量」に切替。";
   } catch (e) {}
 })();
 
@@ -168,26 +198,32 @@ function renderProgress() {
 }
 
 function resolveConfig() {
+  const modelKey = $("selModel").value;
+  const m = MODELS[modelKey];
   let device = $("selDevice").value;
   if (device === "auto") device = ("gpu" in navigator) ? "webgpu" : "wasm";
-  let dtype = $("selDtype").value;
-  if (dtype === "auto") dtype = (device === "webgpu") ? "q4f16" : "q4";
-  return { device, dtype };
+  const dtype = m.dtypeFor(device, $("selDtype").value);
+  return { modelKey, m, device, dtype };
 }
 
 async function loadModel() {
   const cfg = resolveConfig();
+  state.modelKey = cfg.modelKey;
+  state.modelId = cfg.m.id;
   state.device = cfg.device;
   state.dtype = cfg.dtype;
   $("loadBtn").disabled = true;
+  $("selModel").disabled = true;
   $("selDevice").disabled = true;
   $("selDtype").disabled = true;
-  setStatus("モデル読み込み中（" + cfg.device + " / " + cfg.dtype + "）… 初回は数分かかります。画面を切り替えないでください。");
+  for (const k of Object.keys(progress)) delete progress[k];
+  $("prog").hidden = true;
+  setStatus("モデル読み込み中（" + cfg.m.short + " / " + cfg.device + " / " + cfg.dtype + "）… 画面を切り替えないでください。");
   const t0 = performance.now();
   try {
-    setPhase("モデル読み込み（" + cfg.device + "/" + cfg.dtype + "）");
+    setPhase("モデル読み込み（" + cfg.m.short + "・" + cfg.device + "/" + cfg.dtype + "）");
     const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1");
-    state.extractor = await pipeline("feature-extraction", "onnx-community/embeddinggemma-2-ONNX", {
+    state.extractor = await pipeline("feature-extraction", cfg.m.id, {
       device: cfg.device,
       dtype: cfg.dtype,
       progress_callback: (p) => {
@@ -198,23 +234,25 @@ async function loadModel() {
     });
     state.loadMs = Math.round(performance.now() - t0);
 
-    setPhase("ウォームアップ（初回推論）");
-    setStatus("ウォームアップ中（初回だけGPUの準備に時間がかかります）… そのままお待ちください。");
+    setPhase("ウォームアップ（" + cfg.m.short + "・初回推論）");
+    setStatus("ウォームアップ中（初回の準備に少し時間がかかります）…");
     const tw = performance.now();
-    const w = await state.extractor(["task: search result | query: ウォームアップ"], ENC_OPTS);
+    const w = await state.extractor([cfg.m.qp + "ウォームアップ"], ENC_OPTS);
     free(w);
     state.warmupMs = Math.round(performance.now() - tw);
+    await sleep(300);
     clearPhase();
 
-    setStatus("✅ 準備完了：読み込み " + (state.loadMs / 1000).toFixed(1) + " 秒＋ウォームアップ " + (state.warmupMs / 1000).toFixed(1) + " 秒（" + cfg.device + " / " + cfg.dtype + "）。②に進んでください。", "ok");
+    setStatus("✅ 準備完了：読み込み " + (state.loadMs / 1000).toFixed(1) + " 秒＋ウォームアップ " + (state.warmupMs / 1000).toFixed(1) + " 秒（" + cfg.m.short + " / " + cfg.device + " / " + cfg.dtype + "）。②に進んでください。", "ok");
     $("encBtn").disabled = false;
   } catch (e) {
     clearPhase();
     state.error = String(e && e.message ? e.message : e);
-    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：自動設定（WebGPU＋q4f16）に戻して再試行。直らなければこのエラー文をチャットに貼ってください。", "ng");
+    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：モデルを「軽量」に切り替えて再試行。このエラー文をチャットに貼ってください。", "ng");
     $("loadBtn").disabled = false;
+    $("selModel").disabled = false;
     $("selDevice").disabled = false;
-    $("selDtype").disabled = false;
+    $("selDtype").disabled = $("selModel").value === "e5s";
   }
 }
 $("loadBtn").addEventListener("click", loadModel);
@@ -224,21 +262,22 @@ function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b
 
 async function runSimilarity() {
   if (!state.extractor) {
-    setStatus("ページが再読み込みされたため、モデルがメモリから解放されています。①からやり直してください（同じ量子化なら再ダウンロードは不要です）。", "ng");
+    setStatus("ページが再読み込みされたため、モデルがメモリから解放されています。①からやり直してください（同じ組み合わせなら再ダウンロードは不要です）。", "ng");
     return;
   }
+  const m = MODELS[state.modelKey];
   const q = $("q").value.trim();
   const docs = Array.from(document.querySelectorAll(".doc")).map((t) => t.value.trim()).filter(Boolean);
   if (!q || docs.length === 0) { alert("クエリと文書を入力してください"); return; }
 
   $("encBtn").disabled = true;
-  const texts = [{ label: "クエリ", input: "task: search result | query: " + q }]
-    .concat(docs.map((d, i) => ({ label: "文書" + (i + 1), input: "title: none | text: " + d, raw: d })));
+  const texts = [{ label: "クエリ", input: m.qp + q }]
+    .concat(docs.map((d, i) => ({ label: "文書" + (i + 1), input: m.dp + d, raw: d })));
   const vectors = [];
   state.items = [];
   try {
     for (let i = 0; i < texts.length; i++) {
-      setPhase("類似度計算：" + texts[i].label + "（" + (i + 1) + "/" + texts.length + "）");
+      setPhase("類似度計算：" + texts[i].label + "（" + (i + 1) + "/" + texts.length + "・" + m.short + "）");
       setStatus("ベクトル化中 " + (i + 1) + "/" + texts.length + "（" + texts[i].label + "）… 画面を切り替えないでください。");
       const t0 = performance.now();
       const out = await state.extractor([texts[i].input], ENC_OPTS);
@@ -268,7 +307,7 @@ async function runSimilarity() {
       '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(4) + "</td><td>" + escapeHtml(r.text) + "</td></tr>"
     ).join("");
     $("result").innerHTML =
-      '<p class="meta">ベクトル次元: ' + state.dim + " ／ 処理時間: " + times + "</p>" +
+      '<p class="meta">モデル: ' + m.short + " ／ ベクトル次元: " + state.dim + " ／ 処理時間: " + times + "</p>" +
       "<table><tr><th>類似度（コサイン）</th><th>文書</th></tr>" + rows + "</table>";
     setStatus("✅ 計算完了。1位がクエリの意味に最も近い文書です。③で結果を書き出せます。", "ok");
     $("copyJson").disabled = false;
@@ -286,9 +325,9 @@ $("encBtn").addEventListener("click", runSimilarity);
 // ---- ③ 書き出し ----
 function buildReport() {
   return {
-    app: "offline-photo-search v0.4",
+    app: "offline-photo-search v0.5",
     checkedAt: new Date().toISOString(),
-    model: "onnx-community/embeddinggemma-2-ONNX",
+    model: state.modelId,
     device: state.device,
     dtype: state.dtype,
     dim: state.dim,
@@ -328,7 +367,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "embedding-check-v04.csv";
+  a.download = "embedding-check-v05.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -359,7 +398,7 @@ async function diagRun() {
 }
 $("diagRun").addEventListener("click", diagRun);
 $("diagCopy").addEventListener("click", async () => {
-  const text = JSON.stringify({ app: "offline-photo-search v0.4 diag", results: diagItems }, null, 2);
+  const text = JSON.stringify({ app: "offline-photo-search v0.5 diag", results: diagItems }, null, 2);
   try { await navigator.clipboard.writeText(text); alert("コピーしました。"); }
   catch (e) { window.prompt("以下をコピーしてください", text); }
 });
