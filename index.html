@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.7</title>
+<title>オフライン画像・文書 意味検索 v0.8</title>
 <style>
 :root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
@@ -48,12 +48,18 @@ ul.diag li{background:var(--card);border:1px solid var(--line);border-radius:10p
 .k{display:block;color:var(--muted);font-size:.8rem}
 .v{font-weight:600;word-break:break-all}
 footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
+#camOverlay{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column;padding:12px;gap:8px}
+#camOverlay .camBox{flex:1;min-height:0;overflow:hidden;border-radius:12px;background:#000;display:flex;align-items:center;justify-content:center}
+#camVideo{max-width:100%;max-height:100%;transform-origin:center center}
+#camOverlay .lbl,#camOverlay .meta{color:#ddd}
+#camOverlay input[type=range]{width:100%}
+#camOverlay button.ghost{color:#fff;border-color:#666}
 </style>
 </head>
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.7 — 写真取り込み＋OCR（撮ったプリントを言葉で呼び出す）</p>
+<p class="sub">v0.8 — アプリ内カメラ（無音・ズーム対応）＋OCR修正版</p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
@@ -63,16 +69,15 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
   <span class="lbl">写真から（文字を自動で読み取り：OCR）</span>
   <div class="row2">
     <button id="pickBtn" type="button">写真を選ぶ（複数可）</button>
-    <button id="camBtn" class="ghost" type="button">カメラで撮る</button>
+    <button id="camBtn" class="ghost" type="button">カメラで撮る（無音・ズーム可）</button>
   </div>
   <input type="file" id="fileImgs" accept="image/*" multiple hidden>
-  <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
   <span class="lbl">OCRエンジン</span>
   <select id="selOcr">
     <option value="tesseract" selected>Tesseract.js（軽量・本版で対応）</option>
-    <option value="paddle" disabled>PaddleOCR.js（主力・次版で接続）</option>
+    <option value="paddle" disabled>PP-OCR系（主力・次版で接続）</option>
   </select>
-  <p class="meta">初回は日本語の認識データ（数MB〜十数MB）をダウンロードします。1枚あたり数秒〜20秒。読み取れた文字が4文字未満の写真は「文字なし」と判定し、検索対象から外して保管します（適応分岐の簡易版）。</p>
+  <p class="meta">初回は日本語の認識データ（数MB〜十数MB）をダウンロードします。1枚あたり数秒〜20秒。読み取れた文字が4文字未満の写真は「文字なし」と判定し、検索対象から外して保管します。カメラの映像・写真は端末の外へ送信しません。</p>
   <span class="lbl">テキストを直接追加（メモなど）</span>
   <textarea id="newDoc" placeholder="例：保護者の皆様へ：明日の遠足には…"></textarea>
   <button id="addBtn" class="ghost" type="button">このテキストを追加</button>
@@ -130,6 +135,18 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
 </main>
 
+<!-- アプリ内カメラ（無音撮影） -->
+<div id="camOverlay" hidden>
+  <div class="camBox"><video id="camVideo" autoplay muted playsinline></video></div>
+  <span class="lbl">ズーム <span id="zoomVal">1.0</span>×</span>
+  <input type="range" id="zoomRange" min="1" max="4" step="0.1" value="1">
+  <div class="row2">
+    <button id="shotBtn" type="button">撮影して追加（無音）</button>
+    <button id="camClose" class="ghost" type="button">閉じる</button>
+  </div>
+  <p class="meta" id="camMeta">映像は端末の外に出ません。続けて何枚でも撮れます。</p>
+</div>
+
 <script type="module">
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -138,6 +155,7 @@ function escapeHtml(s) {
 }
 function free(t) { try { if (t && typeof t.dispose === "function") t.dispose(); } catch (e) {} }
 function setStatus(msg, kind) { const el = $("status"); el.textContent = msg; el.className = "status" + (kind ? " " + kind : ""); }
+function camSay(msg) { if (!$("camOverlay").hidden) $("camMeta").textContent = msg; }
 
 // ===== モデル定義 =====
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -159,7 +177,8 @@ const state = {
   loadMs: null, warmupMs: null, embedMs: [], lastSearch: null,
   error: null, lastInterrupted: null
 };
-const OCR = { worker: null, loadMs: null, items: [] };
+const OCR = { createWorker: null, worker: null, loadMs: null, items: [] };
+const CAM = { stream: null, track: null, hwZoom: false, zoom: 1 };
 
 // ===== 中断検知 =====
 const PHASE_KEY = "ops-phase";
@@ -229,10 +248,9 @@ async function dbClear() {
     t.onerror = () => rej(t.error);
   });
 }
-// ベクトルを安全に保存：書き込み直前にDBから読み直して合成（上書き消失の防止）
 async function saveVec(doc, key, vec) {
   const fresh = (await dbGet(doc.id)) || doc;
-  fresh.vecs = Object.assign({}, fresh.vecs || {}, {});
+  fresh.vecs = Object.assign({}, fresh.vecs || {});
   fresh.vecs[key] = vec;
   await dbPut(fresh);
   doc.vecs = fresh.vecs;
@@ -320,19 +338,72 @@ $("clearBtn").addEventListener("click", async () => {
   setStatus("全削除しました。");
 });
 
-// ===== 写真の取り込み（OCR：Tesseract.js） =====
+// ===== OCR（Tesseract.js：UMD版をscriptタグで確実に読み込み） =====
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => res();
+    s.onerror = () => rej(new Error("スクリプトを取得できません: " + src));
+    document.head.appendChild(s);
+  });
+}
 async function getTessWorker() {
   if (OCR.worker) return OCR.worker;
   setPhase("OCRエンジン読み込み（Tesseract.js・日本語）");
   setStatus("OCRエンジンを読み込み中（初回は日本語データを数MB〜十数MBダウンロード）…");
+  camSay("OCRエンジンを読み込み中…");
   const t0 = performance.now();
-  const { createWorker } = await import("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js");
-  OCR.worker = await createWorker("jpn", 1, {
-    logger: (m) => { if (m && m.status === "recognizing text") setStatus("文字を認識中… " + Math.round((m.progress || 0) * 100) + "%"); }
+  if (!OCR.createWorker) {
+    if (!window.Tesseract) {
+      await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+    }
+    if (!window.Tesseract || typeof window.Tesseract.createWorker !== "function") {
+      throw new Error("Tesseract.jsの読み込みに失敗（createWorkerが見つかりません）");
+    }
+    OCR.createWorker = window.Tesseract.createWorker;
+  }
+  OCR.worker = await OCR.createWorker("jpn", 1, {
+    logger: (m) => {
+      if (m && m.status === "recognizing text") {
+        const pct = Math.round((m.progress || 0) * 100);
+        setStatus("文字を認識中… " + pct + "%");
+        camSay("文字を認識中… " + pct + "%");
+      }
+    }
   });
   OCR.loadMs = Math.round(performance.now() - t0);
   clearPhase();
   return OCR.worker;
+}
+
+// 画像1枚（canvas）→ OCR → 判定 → 保存。ファイル・カメラ共通の処理
+async function processCanvas(canvas, thumb, name) {
+  const w = await getTessWorker();
+  const t0 = performance.now();
+  const r = await w.recognize(canvas);
+  const ms = Math.round(performance.now() - t0);
+  const raw = (r && r.data && r.data.text) ? r.data.text : "";
+  const text = raw.replace(/\s+/g, " ").trim();
+  const clean = text.replace(/[\s　]/g, "");
+  const conf = (r && r.data && typeof r.data.confidence === "number") ? Math.round(r.data.confidence) : null;
+  const judged = clean.length >= 4; // 文字有無の簡易判定（適応分岐）
+  OCR.items.push({ name: name, ms: ms, chars: clean.length, conf: conf, judged: judged });
+  const doc = { id: newId(), type: "image", text: judged ? text : "", thumb: thumb, ocr: { engine: "tesseract", ms: ms, chars: clean.length, conf: conf, judged: judged }, createdAt: new Date().toISOString(), vecs: {} };
+  await dbPut(doc);
+  state.docs.push(doc);
+  if (judged && state.extractor && state.loadedKey) {
+    try {
+      setPhase("登録時ベクトル化（" + MODELS[state.loadedKey].short + "）");
+      const out = await state.extractor([MODELS[state.loadedKey].dp + doc.text], ENC_OPTS);
+      const v = toVec(out);
+      free(out);
+      await saveVec(doc, state.loadedKey, v);
+    } catch (e) {}
+    clearPhase();
+  }
+  renderDocs();
+  return { judged: judged, chars: clean.length, ms: ms };
 }
 
 async function fileToCanvases(file) {
@@ -364,57 +435,118 @@ async function fileToCanvases(file) {
 async function importImages(files) {
   files = Array.from(files || []);
   if (!files.length) return;
-  let w;
-  try { w = await getTessWorker(); }
-  catch (e) {
-    clearPhase();
-    setStatus("❌ OCRエンジンの読み込みに失敗：" + (e && e.message ? e.message : e) + "（この文面を貼ってください）", "ng");
-    return;
-  }
   let ok = 0, noText = 0, fail = 0;
   for (let i = 0; i < files.length; i++) {
-    const f = files[i];
     try {
       setPhase("OCR " + (i + 1) + "/" + files.length + "（Tesseract.js）");
-      setStatus("写真を処理中 " + (i + 1) + "/" + files.length + "（" + (f.name || "カメラ撮影") + "）… 1枚あたり数秒〜20秒。画面を切り替えないでください。");
-      const { canvas, thumb } = await fileToCanvases(f);
-      const t0 = performance.now();
-      const r = await w.recognize(canvas);
-      const ms = Math.round(performance.now() - t0);
-      const raw = (r && r.data && r.data.text) ? r.data.text : "";
-      const text = raw.replace(/\s+/g, " ").trim();
-      const clean = text.replace(/[\s　]/g, "");
-      const conf = (r && r.data && typeof r.data.confidence === "number") ? Math.round(r.data.confidence) : null;
-      const judged = clean.length >= 4; // 文字有無の簡易判定（適応分岐）
-      OCR.items.push({ name: f.name || "camera", ms: ms, chars: clean.length, conf: conf, judged: judged });
-      const doc = { id: newId(), type: "image", text: judged ? text : "", thumb: thumb, ocr: { engine: "tesseract", ms: ms, chars: clean.length, conf: conf, judged: judged }, createdAt: new Date().toISOString(), vecs: {} };
-      await dbPut(doc);
-      state.docs.push(doc);
-      if (judged && state.extractor && state.loadedKey) {
-        try {
-          setPhase("登録時ベクトル化（" + MODELS[state.loadedKey].short + "）");
-          const out = await state.extractor([MODELS[state.loadedKey].dp + doc.text], ENC_OPTS);
-          const v = toVec(out);
-          free(out);
-          await saveVec(doc, state.loadedKey, v);
-        } catch (e) {}
-        clearPhase();
-      }
-      renderDocs();
-      if (judged) ok++; else noText++;
+      setStatus("写真を処理中 " + (i + 1) + "/" + files.length + "（" + (files[i].name || "画像") + "）… 1枚あたり数秒〜20秒。画面を切り替えないでください。");
+      const { canvas, thumb } = await fileToCanvases(files[i]);
+      const res = await processCanvas(canvas, thumb, files[i].name || "画像");
+      if (res.judged) ok++; else noText++;
       await sleep(30);
     } catch (e) {
       fail++;
+      clearPhase();
+      setStatus("❌ 処理に失敗（" + (files[i].name || "画像") + "）：" + (e && e.message ? e.message : e), "ng");
     }
   }
   clearPhase();
-  setStatus("✅ 写真の取り込み完了：文字あり " + ok + " 件・文字なし " + noText + " 件" + (fail ? "・失敗 " + fail + " 件" : "") + "。意味検索する場合は②でベクトル化してください。", fail ? "warn" : "ok");
+  if (!fail) setStatus("✅ 取り込み完了：文字あり " + ok + " 件・文字なし " + noText + " 件。意味検索する場合は②でベクトル化してください。", "ok");
 }
-
 $("pickBtn").addEventListener("click", () => $("fileImgs").click());
-$("camBtn").addEventListener("click", () => $("fileCam").click());
 $("fileImgs").addEventListener("change", (e) => { importImages(e.target.files); e.target.value = ""; });
-$("fileCam").addEventListener("change", (e) => { importImages(e.target.files); e.target.value = ""; });
+
+// ===== アプリ内カメラ（無音撮影・ズーム） =====
+function applyPreviewZoom() {
+  $("zoomVal").textContent = CAM.zoom.toFixed(1);
+  const v = $("camVideo");
+  if (CAM.hwZoom && CAM.track) {
+    try { CAM.track.applyConstraints({ advanced: [{ zoom: CAM.zoom }] }); } catch (e) {}
+    v.style.transform = "none";
+  } else {
+    v.style.transform = "scale(" + CAM.zoom + ")";
+  }
+}
+async function openCam() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus("❌ この環境ではカメラAPIを使えません。「写真を選ぶ」から取り込んでください。", "ng");
+    return;
+  }
+  try {
+    CAM.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+  } catch (e) {
+    setStatus("❌ カメラを起動できません：" + (e && e.message ? e.message : e) + "（Safariのサイト設定でカメラ許可を確認）", "ng");
+    return;
+  }
+  CAM.track = CAM.stream.getVideoTracks()[0];
+  let caps = {};
+  try { caps = CAM.track.getCapabilities ? CAM.track.getCapabilities() : {}; } catch (e) {}
+  const zr = $("zoomRange");
+  if (caps && caps.zoom && typeof caps.zoom.min === "number") {
+    CAM.hwZoom = true;
+    zr.min = caps.zoom.min;
+    zr.max = Math.min(caps.zoom.max || 4, 8);
+    zr.step = caps.zoom.step || 0.1;
+    let cur = 1;
+    try { cur = CAM.track.getSettings().zoom || caps.zoom.min; } catch (e) {}
+    zr.value = cur;
+  } else {
+    CAM.hwZoom = false;
+    zr.min = 1; zr.max = 4; zr.step = 0.1; zr.value = 1;
+  }
+  CAM.zoom = parseFloat(zr.value);
+  const v = $("camVideo");
+  v.srcObject = CAM.stream;
+  try { await v.play(); } catch (e) {}
+  $("camOverlay").hidden = false;
+  applyPreviewZoom();
+  camSay((CAM.hwZoom ? "カメラのズーム機能を使用" : "デジタルズーム（中央切り出し）") + "・無音撮影・映像は端末の外に出ません。");
+}
+function closeCam() {
+  $("camOverlay").hidden = true;
+  if (CAM.stream) { for (const t of CAM.stream.getTracks()) { try { t.stop(); } catch (e) {} } }
+  CAM.stream = null;
+  CAM.track = null;
+}
+async function shoot() {
+  const v = $("camVideo");
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) { camSay("カメラ準備中です。少し待ってからもう一度。"); return; }
+  $("shotBtn").disabled = true;
+  try {
+    let sx = 0, sy = 0, sw = vw, sh = vh;
+    if (!CAM.hwZoom && CAM.zoom > 1) {
+      sw = Math.max(1, Math.round(vw / CAM.zoom));
+      sh = Math.max(1, Math.round(vh / CAM.zoom));
+      sx = Math.round((vw - sw) / 2);
+      sy = Math.round((vh - sh) / 2);
+    }
+    const sc = Math.min(1, 1600 / Math.max(sw, sh));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(sw * sc));
+    c.height = Math.max(1, Math.round(sh * sc));
+    c.getContext("2d").drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+    const ts = Math.min(1, 96 / Math.max(c.width, c.height));
+    const t = document.createElement("canvas");
+    t.width = Math.max(1, Math.round(c.width * ts));
+    t.height = Math.max(1, Math.round(c.height * ts));
+    t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
+    camSay("文字を読み取り中…（数秒〜20秒）");
+    const res = await processCanvas(c, t.toDataURL("image/jpeg", 0.7), "アプリ内カメラ");
+    camSay(res.judged ? ("✅ 追加しました（文字あり・約" + res.chars + "文字・" + res.ms + "ms）。続けて撮影できます。") : "✅ 追加しました（文字なし画像として保管）。続けて撮影できます。");
+  } catch (e) {
+    camSay("❌ 失敗：" + (e && e.message ? e.message : e));
+  } finally {
+    $("shotBtn").disabled = false;
+  }
+}
+$("camBtn").addEventListener("click", openCam);
+$("camClose").addEventListener("click", closeCam);
+$("shotBtn").addEventListener("click", shoot);
+$("zoomRange").addEventListener("input", (e) => { CAM.zoom = parseFloat(e.target.value) || 1; applyPreviewZoom(); });
 
 // ===== ベクトル化（意味検索の準備） =====
 const ENC_OPTS = { pooling: "mean", normalize: true };
@@ -539,7 +671,7 @@ async function vectorizeAll() {
       const v = toVec(out);
       free(out);
       state.embedMs.push(Math.round(performance.now() - t0));
-      await saveVec(pend[i], key, v); // 読み直し合成で保存（1件ごと）
+      await saveVec(pend[i], key, v);
       renderDocs();
       await sleep(40);
     }
@@ -657,7 +789,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.7",
+    app: "offline-photo-search v0.8",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
@@ -707,7 +839,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v07.csv";
+  a.download = "ocr-search-v08.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -725,6 +857,7 @@ async function diagRun() {
   try { row("WebGPU", "gpu" in navigator ? ((await navigator.gpu.requestAdapter()) ? "対応" : "アダプタ取得失敗") : "非対応"); }
   catch (e) { row("WebGPU", "エラー: " + e.message); }
   row("WebAssembly", typeof WebAssembly === "object" ? "対応" : "非対応");
+  row("カメラAPI", (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ? "対応" : "非対応");
   try { const est = await navigator.storage.estimate(); row("ストレージ割当の目安", Math.round((est.quota || 0) / 1048576) + " MB（使用中 " + Math.round((est.usage || 0) / 1048576) + " MB）"); }
   catch (e) { row("ストレージ割当の目安", "取得不可"); }
   row("表示モード", window.matchMedia("(display-mode: standalone)").matches ? "ホーム画面から起動（PWA）" : "ブラウザ内で表示");
