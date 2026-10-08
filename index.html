@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.2</title>
+<title>オフライン画像・文書 意味検索 v0.3</title>
 <style>
-:root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--muted:#6b6b66;--accent:#1a7f5a}
+:root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
 *{box-sizing:border-box}
 body{margin:0;padding:16px;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
@@ -18,11 +18,11 @@ h2{font-size:1.05rem;margin:1.5rem 0 .5rem}
 .status{border-radius:10px;padding:10px 14px;font-weight:700;margin:0 0 10px;background:var(--card);border:1px solid var(--line)}
 .status.ok{background:var(--ok);color:#fff;border-color:var(--ok)}
 .status.ng{background:var(--ng);color:#fff;border-color:var(--ng)}
+.status.warn{background:var(--warn);color:#fff;border-color:var(--warn)}
 button{appearance:none;border:0;border-radius:10px;padding:13px 16px;font-size:1rem;font-weight:700;background:var(--accent);color:#fff;width:100%;margin:.25rem 0 .5rem;cursor:pointer}
 button:disabled{opacity:.45}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
-label.chk{display:flex;gap:8px;align-items:center;font-size:.9rem;margin:.25rem 0 .5rem}
-input[type=text],textarea{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+input[type=text],textarea,select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 textarea{min-height:3.2em;resize:vertical}
 .lbl{display:block;color:var(--muted);font-size:.8rem;margin:.6rem 0 .2rem}
 pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.75rem;overflow:auto;white-space:pre-wrap;word-break:break-all;max-height:14em}
@@ -45,15 +45,28 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.2 — EmbeddingGemma 2 テキスト埋め込みデモ（実機検証用）</p>
+<p class="sub">v0.3 — EmbeddingGemma 2 実機検証（安定化版）</p>
 
+<div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">まだモデルを読み込んでいません。Wi-Fi接続で「① モデルを読み込む」を押してください。</div>
 
 <h2>① モデルを読み込む</h2>
 <div class="card">
-  <label class="chk"><input type="checkbox" id="forceWasm"> WASMを強制する（WebGPUと比較測定したいとき用。通常はオフ）</label>
-  <button id="loadBtn" type="button">① モデルを読み込む（初回は約180〜210MBをダウンロード）</button>
-  <p class="meta">モデル: onnx-community/embeddinggemma-2-ONNX（テキスト・q4量子化）／ 2回目以降はブラウザ内キャッシュから読み込むため通信しません。</p>
+  <span class="lbl">実行方式</span>
+  <select id="selDevice">
+    <option value="auto" selected>自動（WebGPUが使えればWebGPU）</option>
+    <option value="webgpu">WebGPU（GPUで高速）</option>
+    <option value="wasm">WASM（CPU。遅いが安定しやすい）</option>
+  </select>
+  <span class="lbl">量子化（モデルの軽量化形式）</span>
+  <select id="selDtype">
+    <option value="auto" selected>自動（WebGPU→q4f16 ／ WASM→q4）</option>
+    <option value="q4f16">q4f16（最小・約157MB・省メモリ）</option>
+    <option value="q4">q4（標準・約174MB）</option>
+    <option value="q8">q8（高精度・約314MB）</option>
+  </select>
+  <button id="loadBtn" type="button">① モデルを読み込む</button>
+  <p class="meta">モデル: onnx-community/embeddinggemma-2-ONNX（テキスト）。同じ量子化なら2回目以降は再ダウンロードなし。量子化を変えた初回のみ、その形式のファイルを新規ダウンロードします。読み込み〜ウォームアップ中は画面を切り替えず、スリープさせないでください。</p>
   <pre id="prog" hidden></pre>
 </div>
 
@@ -67,7 +80,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
   <textarea class="doc">二次関数 y=ax^2 のグラフの頂点と軸の求め方について説明する。</textarea>
   <span class="lbl">文書3</span>
   <textarea class="doc">放課後に校庭の桜を撮影した。花がとてもきれいだった。</textarea>
-  <button id="encBtn" type="button" disabled>② ベクトル化して類似度を計算</button>
+  <button id="encBtn" type="button" disabled>② ベクトル化して類似度を計算（1件ずつ処理）</button>
   <div id="result"></div>
 </div>
 
@@ -75,7 +88,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <div class="card">
   <button id="copyJson" class="ghost" type="button" disabled>結果をコピー（JSON・チャット貼り付け用）</button>
   <button id="dlCsv" class="ghost" type="button" disabled>CSVをダウンロード（卒論の表づくり用）</button>
-  <p class="meta">iPhoneではCSVのダウンロード後に共有画面が出るので「"ファイル"に保存」を選んでください。</p>
+  <p class="meta">iPhoneではCSVのダウンロード後に共有画面が出るので「"ファイル"に保存」を選んでください。中断（ページ再読み込み）が起きた場合、その記録も書き出しに含まれます。</p>
 </div>
 
 <details>
@@ -91,16 +104,9 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <script type="module">
 const $ = (id) => document.getElementById(id);
 const state = {
-  extractor: null,
-  device: null,
-  dtype: "q4",
-  dim: null,
-  loadMs: null,
-  queryMs: null,
-  docsMs: null,
-  docCount: 0,
-  ranking: [],
-  error: null
+  extractor: null, device: null, dtype: null, dim: null,
+  loadMs: null, warmupMs: null, items: [], ranking: [],
+  error: null, lastInterrupted: null
 };
 
 function setStatus(msg, kind) {
@@ -108,8 +114,29 @@ function setStatus(msg, kind) {
   el.textContent = msg;
   el.className = "status" + (kind ? " " + kind : "");
 }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function free(t) { try { if (t && typeof t.dispose === "function") t.dispose(); } catch (e) {} }
 
-// ---- ① モデル読み込み ----
+// ---- 中断（クラッシュ）検知：処理の直前に「今どの段階か」を書き残し、無事に終わったら消す ----
+const PHASE_KEY = "ops-phase";
+function setPhase(p) { try { localStorage.setItem(PHASE_KEY, JSON.stringify({ phase: p, at: new Date().toISOString() })); } catch (e) {} }
+function clearPhase() { try { localStorage.removeItem(PHASE_KEY); } catch (e) {} }
+(function detectInterrupt() {
+  try {
+    const raw = localStorage.getItem(PHASE_KEY);
+    if (!raw) return;
+    state.lastInterrupted = JSON.parse(raw);
+    localStorage.removeItem(PHASE_KEY);
+    const el = $("crash");
+    el.hidden = false;
+    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされたようです（メモリ不足の可能性が高い）。この記録は③の書き出しに自動で含まれます。実行方式をWASMにする／量子化をq4f16にする、で再試行してください。";
+  } catch (e) {}
+})();
+
+// ---- ① モデル読み込み（＋ウォームアップ） ----
 const progress = {};
 function renderProgress() {
   const lines = Object.values(progress).map((p) => {
@@ -122,19 +149,29 @@ function renderProgress() {
   pre.textContent = lines.join("\n");
 }
 
+function resolveConfig() {
+  let device = $("selDevice").value;
+  if (device === "auto") device = ("gpu" in navigator) ? "webgpu" : "wasm";
+  let dtype = $("selDtype").value;
+  if (dtype === "auto") dtype = (device === "webgpu") ? "q4f16" : "q4";
+  return { device, dtype };
+}
+
 async function loadModel() {
-  const force = $("forceWasm").checked;
-  const device = (!force && "gpu" in navigator) ? "webgpu" : "wasm";
-  state.device = device;
+  const cfg = resolveConfig();
+  state.device = cfg.device;
+  state.dtype = cfg.dtype;
   $("loadBtn").disabled = true;
-  $("forceWasm").disabled = true;
-  setStatus("モデル読み込み中（" + device + " / q4）… 初回は数分かかることがあります。画面を閉じずにお待ちください。");
+  $("selDevice").disabled = true;
+  $("selDtype").disabled = true;
+  setStatus("モデル読み込み中（" + cfg.device + " / " + cfg.dtype + "）… 初回は数分かかります。画面を切り替えないでください。");
   const t0 = performance.now();
   try {
+    setPhase("モデル読み込み（" + cfg.device + "/" + cfg.dtype + "）");
     const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1");
     state.extractor = await pipeline("feature-extraction", "onnx-community/embeddinggemma-2-ONNX", {
-      device: device,
-      dtype: "q4",
+      device: cfg.device,
+      dtype: cfg.dtype,
       progress_callback: (p) => {
         if (!p || !p.file) return;
         if (p.status === "progress") { progress[p.file] = p; renderProgress(); }
@@ -142,81 +179,104 @@ async function loadModel() {
       }
     });
     state.loadMs = Math.round(performance.now() - t0);
-    setStatus("✅ モデル読み込み完了：" + (state.loadMs / 1000).toFixed(1) + " 秒（実行方式: " + device + "）。②に進んでください。", "ok");
+
+    // ウォームアップ：初回推論（GPUの準備）を①の段階で済ませ、②のメモリ急増を抑える
+    setPhase("ウォームアップ（初回推論）");
+    setStatus("ウォームアップ中（初回だけGPUの準備に時間がかかります）… そのままお待ちください。");
+    const tw = performance.now();
+    const w = await state.extractor(["task: search result | query: ウォームアップ"]);
+    free(w);
+    state.warmupMs = Math.round(performance.now() - tw);
+    clearPhase();
+
+    setStatus("✅ 準備完了：読み込み " + (state.loadMs / 1000).toFixed(1) + " 秒＋ウォームアップ " + (state.warmupMs / 1000).toFixed(1) + " 秒（" + cfg.device + " / " + cfg.dtype + "）。②に進んでください。", "ok");
     $("encBtn").disabled = false;
   } catch (e) {
+    clearPhase();
     state.error = String(e && e.message ? e.message : e);
-    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：ページを再読み込みし、「WASMを強制」にチェックして再試行。それでも駄目ならこのエラー文をチャットに貼ってください。", "ng");
+    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：量子化を q4 に変える、または実行方式を WASM に変えて再試行。直らなければこのエラー文をチャットに貼ってください。", "ng");
     $("loadBtn").disabled = false;
-    $("forceWasm").disabled = false;
+    $("selDevice").disabled = false;
+    $("selDtype").disabled = false;
   }
 }
 $("loadBtn").addEventListener("click", loadModel);
 
-// ---- ② 類似度計算 ----
+// ---- ② 類似度計算（メモリ対策：1件ずつ直列に処理） ----
 function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
 
 async function runSimilarity() {
+  if (!state.extractor) {
+    setStatus("ページが再読み込みされたため、モデルがメモリから解放されています。①からやり直してください（同じ量子化なら再ダウンロードは不要です）。", "ng");
+    return;
+  }
   const q = $("q").value.trim();
   const docs = Array.from(document.querySelectorAll(".doc")).map((t) => t.value.trim()).filter(Boolean);
   if (!q || docs.length === 0) { alert("クエリと文書を入力してください"); return; }
-  $("encBtn").disabled = true;
-  setStatus("ベクトル化して類似度を計算中…");
-  try {
-    // EmbeddingGemma 2 は用途を示す接頭辞（プレフィックス）を付けて入力する
-    const t1 = performance.now();
-    const qv = (await state.extractor(["task: search result | query: " + q])).tolist()[0];
-    const t2 = performance.now();
-    const dv = (await state.extractor(docs.map((d) => "title: none | text: " + d))).tolist();
-    const t3 = performance.now();
 
+  $("encBtn").disabled = true;
+  const texts = [{ label: "クエリ", input: "task: search result | query: " + q }]
+    .concat(docs.map((d, i) => ({ label: "文書" + (i + 1), input: "title: none | text: " + d, raw: d })));
+  const vectors = [];
+  state.items = [];
+  try {
+    for (let i = 0; i < texts.length; i++) {
+      setPhase("類似度計算：" + texts[i].label + "（" + (i + 1) + "/" + texts.length + "）");
+      setStatus("ベクトル化中 " + (i + 1) + "/" + texts.length + "（" + texts[i].label + "）… 画面を切り替えないでください。");
+      const t0 = performance.now();
+      const out = await state.extractor([texts[i].input]);
+      const v = out.tolist()[0];
+      free(out);
+      const ms = Math.round(performance.now() - t0);
+      vectors.push(v);
+      state.items.push({ label: texts[i].label, ms: ms });
+      await sleep(50); // 画面更新とメモリ解放の猶予
+    }
+    clearPhase();
+
+    const qv = vectors[0];
     state.dim = qv.length;
-    state.queryMs = Math.round(t2 - t1);
-    state.docsMs = Math.round(t3 - t2);
-    state.docCount = docs.length;
-    state.ranking = dv
-      .map((v, i) => ({ text: docs[i], score: dot(qv, v) }))
+    state.ranking = vectors.slice(1)
+      .map((v, i) => ({ text: texts[i + 1].raw, score: dot(qv, v) }))
       .sort((a, b) => b.score - a.score)
       .map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text }));
 
+    const times = state.items.map((x) => x.label + " " + x.ms + "ms").join(" ／ ");
     const rows = state.ranking.map((r, i) =>
       '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(4) + "</td><td>" + escapeHtml(r.text) + "</td></tr>"
     ).join("");
     $("result").innerHTML =
-      '<p class="meta">ベクトル次元: ' + state.dim + " ／ クエリ処理 " + state.queryMs + " ms ／ 文書" + state.docCount + "件 " + state.docsMs + " ms（1件あたり約" + Math.round(state.docsMs / state.docCount) + " ms）</p>" +
-      '<table><tr><th>類似度（コサイン）</th><th>文書</th></tr>' + rows + "</table>";
+      '<p class="meta">ベクトル次元: ' + state.dim + " ／ 処理時間: " + times + "</p>" +
+      "<table><tr><th>類似度（コサイン）</th><th>文書</th></tr>" + rows + "</table>";
     setStatus("✅ 計算完了。1位がクエリの意味に最も近い文書です。③で結果を書き出せます。", "ok");
     $("copyJson").disabled = false;
     $("dlCsv").disabled = false;
   } catch (e) {
+    clearPhase();
     state.error = String(e && e.message ? e.message : e);
-    setStatus("❌ 計算に失敗：" + state.error + "（このエラー文をチャットに貼ってください）", "ng");
+    setStatus("❌ 計算に失敗：" + state.error + "（実行方式をWASMに変えて再試行。このエラー文をチャットに貼ってください）", "ng");
   } finally {
-    $("encBtn").disabled = false;
+    $("encBtn").disabled = !state.extractor;
   }
 }
 $("encBtn").addEventListener("click", runSimilarity);
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
 // ---- ③ 書き出し ----
 function buildReport() {
   return {
-    app: "offline-photo-search v0.2",
+    app: "offline-photo-search v0.3",
     checkedAt: new Date().toISOString(),
     model: "onnx-community/embeddinggemma-2-ONNX",
-    dtype: state.dtype,
     device: state.device,
+    dtype: state.dtype,
     dim: state.dim,
     modelLoadMs: state.loadMs,
-    queryEncodeMs: state.queryMs,
-    docsEncodeMs: state.docsMs,
-    docCount: state.docCount,
-    userAgent: navigator.userAgent,
+    warmupMs: state.warmupMs,
+    perItemMs: state.items,
     ranking: state.ranking,
-    error: state.error
+    lastInterrupted: state.lastInterrupted,
+    error: state.error,
+    userAgent: navigator.userAgent
   };
 }
 
@@ -232,21 +292,21 @@ $("dlCsv").addEventListener("click", () => {
     ["項目", "値"],
     ["計測日時", r.checkedAt],
     ["モデル", r.model],
-    ["量子化", r.dtype],
     ["実行方式", r.device],
+    ["量子化", r.dtype],
     ["ベクトル次元", r.dim],
     ["モデル読み込み時間(ms)", r.modelLoadMs],
-    ["クエリ処理時間(ms)", r.queryEncodeMs],
-    ["文書処理時間合計(ms)", r.docsEncodeMs],
-    ["文書件数", r.docCount],
+    ["ウォームアップ時間(ms)", r.warmupMs],
+    ["前回の中断", r.lastInterrupted ? r.lastInterrupted.phase : "なし"],
     ["UserAgent", r.userAgent]
   ];
-  const rank = [[], ["順位", "類似度", "文書"]].concat(r.ranking.map((x) => [x.rank, x.score, x.text]));
+  const t1 = [[], ["処理対象", "時間(ms)"]].concat(r.perItemMs.map((x) => [x.label, x.ms]));
+  const t2 = [[], ["順位", "類似度", "文書"]].concat(r.ranking.map((x) => [x.rank, x.score, x.text]));
   const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
-  const csv = "﻿" + head.concat(rank).map((row) => row.map(esc).join(",")).join("\r\n");
+  const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "embedding-check-v02.csv";
+  a.download = "embedding-check-v03.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -256,7 +316,7 @@ const diagItems = [];
 function diagRow(key, value, ok) {
   diagItems.push({ key: key, value: String(value), ok: ok === undefined ? null : ok });
   const li = document.createElement("li");
-  li.innerHTML = '<span class="k">' + key + '</span><span class="v ' + (ok === true ? "okc" : ok === false ? "ngc" : "") + '">' + escapeHtml(String(value)) + "</span>";
+  li.innerHTML = '<span class="k">' + escapeHtml(key) + '</span><span class="v ' + (ok === true ? "okc" : ok === false ? "ngc" : "") + '">' + escapeHtml(String(value)) + "</span>";
   $("diagList").appendChild(li);
 }
 async function diagRun() {
@@ -277,7 +337,7 @@ async function diagRun() {
 }
 $("diagRun").addEventListener("click", diagRun);
 $("diagCopy").addEventListener("click", async () => {
-  const text = JSON.stringify({ app: "offline-photo-search v0.2 diag", results: diagItems }, null, 2);
+  const text = JSON.stringify({ app: "offline-photo-search v0.3 diag", results: diagItems }, null, 2);
   try { await navigator.clipboard.writeText(text); alert("コピーしました。"); }
   catch (e) { window.prompt("以下をコピーしてください", text); }
 });
