@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.3</title>
+<title>オフライン画像・文書 意味検索 v0.4</title>
 <style>
 :root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
@@ -45,7 +45,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.3 — EmbeddingGemma 2 実機検証（安定化版）</p>
+<p class="sub">v0.4 — EmbeddingGemma 2 実機検証（類似度計算の修正版）</p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">まだモデルを読み込んでいません。Wi-Fi接続で「① モデルを読み込む」を押してください。</div>
@@ -56,7 +56,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
   <select id="selDevice">
     <option value="auto" selected>自動（WebGPUが使えればWebGPU）</option>
     <option value="webgpu">WebGPU（GPUで高速）</option>
-    <option value="wasm">WASM（CPU。遅いが安定しやすい）</option>
+    <option value="wasm">WASM（CPU。この端末では落ちやすい）</option>
   </select>
   <span class="lbl">量子化（モデルの軽量化形式）</span>
   <select id="selDtype">
@@ -66,7 +66,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
     <option value="q8">q8（高精度・約314MB）</option>
   </select>
   <button id="loadBtn" type="button">① モデルを読み込む</button>
-  <p class="meta">モデル: onnx-community/embeddinggemma-2-ONNX（テキスト）。同じ量子化なら2回目以降は再ダウンロードなし。量子化を変えた初回のみ、その形式のファイルを新規ダウンロードします。読み込み〜ウォームアップ中は画面を切り替えず、スリープさせないでください。</p>
+  <p class="meta">モデル: onnx-community/embeddinggemma-2-ONNX（テキスト）。この端末（iPhone 17e）では WebGPU＋q4f16 の組み合わせで動作確認済み。他の組み合わせはメモリ不足で落ちることがあります（落ちた記録も自動で残ります）。同じ量子化なら2回目以降は再ダウンロードなし。読み込み中は画面を切り替えないでください。</p>
   <pre id="prog" hidden></pre>
 </div>
 
@@ -120,7 +120,25 @@ function escapeHtml(s) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function free(t) { try { if (t && typeof t.dispose === "function") t.dispose(); } catch (e) {} }
 
-// ---- 中断（クラッシュ）検知：処理の直前に「今どの段階か」を書き残し、無事に終わったら消す ----
+// ---- 文ベクトル化：pooling(平均)＋normalize(長さ1に正規化)を指定し、
+//      万一トークン列のまま返ってきた場合も自前で平均→正規化する（v0.3のバグ対策） ----
+const ENC_OPTS = { pooling: "mean", normalize: true };
+function toVec(out) {
+  let v = out.tolist()[0];
+  if (Array.isArray(v) && Array.isArray(v[0])) { // [トークン数][次元] → 平均して1本に
+    const n = v.length, d = v[0].length, m = new Array(d).fill(0);
+    for (let i = 0; i < n; i++) { const row = v[i]; for (let j = 0; j < d; j++) m[j] += row[j]; }
+    for (let j = 0; j < d; j++) m[j] /= n;
+    v = m;
+  }
+  let s = 0;
+  for (let j = 0; j < v.length; j++) s += v[j] * v[j];
+  s = Math.sqrt(s) || 1;
+  for (let j = 0; j < v.length; j++) v[j] = v[j] / s; // 正規化（コサイン類似度＝内積にするため）
+  return v;
+}
+
+// ---- 中断（クラッシュ）検知 ----
 const PHASE_KEY = "ops-phase";
 function setPhase(p) { try { localStorage.setItem(PHASE_KEY, JSON.stringify({ phase: p, at: new Date().toISOString() })); } catch (e) {} }
 function clearPhase() { try { localStorage.removeItem(PHASE_KEY); } catch (e) {} }
@@ -132,7 +150,7 @@ function clearPhase() { try { localStorage.removeItem(PHASE_KEY); } catch (e) {}
     localStorage.removeItem(PHASE_KEY);
     const el = $("crash");
     el.hidden = false;
-    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされたようです（メモリ不足の可能性が高い）。この記録は③の書き出しに自動で含まれます。実行方式をWASMにする／量子化をq4f16にする、で再試行してください。";
+    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされたようです（メモリ不足の可能性が高い）。この記録は③の書き出しに自動で含まれます。WebGPU＋q4f16（自動設定）での再試行をおすすめします。";
   } catch (e) {}
 })();
 
@@ -180,11 +198,10 @@ async function loadModel() {
     });
     state.loadMs = Math.round(performance.now() - t0);
 
-    // ウォームアップ：初回推論（GPUの準備）を①の段階で済ませ、②のメモリ急増を抑える
     setPhase("ウォームアップ（初回推論）");
     setStatus("ウォームアップ中（初回だけGPUの準備に時間がかかります）… そのままお待ちください。");
     const tw = performance.now();
-    const w = await state.extractor(["task: search result | query: ウォームアップ"]);
+    const w = await state.extractor(["task: search result | query: ウォームアップ"], ENC_OPTS);
     free(w);
     state.warmupMs = Math.round(performance.now() - tw);
     clearPhase();
@@ -194,7 +211,7 @@ async function loadModel() {
   } catch (e) {
     clearPhase();
     state.error = String(e && e.message ? e.message : e);
-    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：量子化を q4 に変える、または実行方式を WASM に変えて再試行。直らなければこのエラー文をチャットに貼ってください。", "ng");
+    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：自動設定（WebGPU＋q4f16）に戻して再試行。直らなければこのエラー文をチャットに貼ってください。", "ng");
     $("loadBtn").disabled = false;
     $("selDevice").disabled = false;
     $("selDtype").disabled = false;
@@ -202,7 +219,7 @@ async function loadModel() {
 }
 $("loadBtn").addEventListener("click", loadModel);
 
-// ---- ② 類似度計算（メモリ対策：1件ずつ直列に処理） ----
+// ---- ② 類似度計算（1件ずつ直列処理） ----
 function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
 
 async function runSimilarity() {
@@ -224,22 +241,27 @@ async function runSimilarity() {
       setPhase("類似度計算：" + texts[i].label + "（" + (i + 1) + "/" + texts.length + "）");
       setStatus("ベクトル化中 " + (i + 1) + "/" + texts.length + "（" + texts[i].label + "）… 画面を切り替えないでください。");
       const t0 = performance.now();
-      const out = await state.extractor([texts[i].input]);
-      const v = out.tolist()[0];
+      const out = await state.extractor([texts[i].input], ENC_OPTS);
+      const v = toVec(out);
       free(out);
       const ms = Math.round(performance.now() - t0);
       vectors.push(v);
       state.items.push({ label: texts[i].label, ms: ms });
-      await sleep(50); // 画面更新とメモリ解放の猶予
+      await sleep(50);
     }
     clearPhase();
 
     const qv = vectors[0];
     state.dim = qv.length;
+    if (state.dim < 64) throw new Error("ベクトル次元が異常です（" + state.dim + "）。この文面をチャットに貼ってください。");
+
     state.ranking = vectors.slice(1)
       .map((v, i) => ({ text: texts[i + 1].raw, score: dot(qv, v) }))
       .sort((a, b) => b.score - a.score)
       .map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text }));
+    if (state.ranking.some((r) => !Number.isFinite(r.score))) {
+      throw new Error("類似度の計算結果が数値になりませんでした。この文面をチャットに貼ってください。");
+    }
 
     const times = state.items.map((x) => x.label + " " + x.ms + "ms").join(" ／ ");
     const rows = state.ranking.map((r, i) =>
@@ -254,7 +276,7 @@ async function runSimilarity() {
   } catch (e) {
     clearPhase();
     state.error = String(e && e.message ? e.message : e);
-    setStatus("❌ 計算に失敗：" + state.error + "（実行方式をWASMに変えて再試行。このエラー文をチャットに貼ってください）", "ng");
+    setStatus("❌ 計算に失敗：" + state.error, "ng");
   } finally {
     $("encBtn").disabled = !state.extractor;
   }
@@ -264,7 +286,7 @@ $("encBtn").addEventListener("click", runSimilarity);
 // ---- ③ 書き出し ----
 function buildReport() {
   return {
-    app: "offline-photo-search v0.3",
+    app: "offline-photo-search v0.4",
     checkedAt: new Date().toISOString(),
     model: "onnx-community/embeddinggemma-2-ONNX",
     device: state.device,
@@ -306,7 +328,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "embedding-check-v03.csv";
+  a.download = "embedding-check-v04.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -337,7 +359,7 @@ async function diagRun() {
 }
 $("diagRun").addEventListener("click", diagRun);
 $("diagCopy").addEventListener("click", async () => {
-  const text = JSON.stringify({ app: "offline-photo-search v0.3 diag", results: diagItems }, null, 2);
+  const text = JSON.stringify({ app: "offline-photo-search v0.4 diag", results: diagItems }, null, 2);
   try { await navigator.clipboard.writeText(text); alert("コピーしました。"); }
   catch (e) { window.prompt("以下をコピーしてください", text); }
 });
