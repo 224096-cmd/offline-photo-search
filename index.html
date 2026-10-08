@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.5</title>
+<title>オフライン画像・文書 意味検索 v0.6</title>
 <style>
 :root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
@@ -22,136 +22,261 @@ h2{font-size:1.05rem;margin:1.5rem 0 .5rem}
 button{appearance:none;border:0;border-radius:10px;padding:13px 16px;font-size:1rem;font-weight:700;background:var(--accent);color:#fff;width:100%;margin:.25rem 0 .5rem;cursor:pointer}
 button:disabled{opacity:.45}
 button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+button.mini{width:auto;padding:6px 10px;font-size:.8rem;font-weight:600;margin:0;background:transparent;border:1px solid var(--line);color:var(--ng)}
+.row2{display:flex;gap:8px}
+.row2>button{flex:1}
 input[type=text],textarea,select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 textarea{min-height:3.2em;resize:vertical}
 .lbl{display:block;color:var(--muted);font-size:.8rem;margin:.6rem 0 .2rem}
-pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.75rem;overflow:auto;white-space:pre-wrap;word-break:break-all;max-height:14em}
+pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.75rem;overflow:auto;white-space:pre-wrap;word-break:break-all;max-height:12em}
 table{width:100%;border-collapse:collapse;font-size:.9rem}
 th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
 th{color:var(--muted);font-weight:600;font-size:.8rem}
 .score{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
 .top .score{color:var(--ok)}
 .meta{color:var(--muted);font-size:.8rem}
+ul.docs{list-style:none;margin:.5rem 0 0;padding:0}
+ul.docs li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:0 0 6px;display:flex;gap:8px;align-items:center;font-size:.85rem}
+ul.docs li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 details{margin-top:1.5rem}
 summary{cursor:pointer;font-weight:700}
 ul.diag{list-style:none;margin:.5rem 0 0;padding:0}
 ul.diag li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 8px}
 .k{display:block;color:var(--muted);font-size:.8rem}
 .v{font-weight:600;word-break:break-all}
-.v.okc{color:var(--ok)}.v.ngc{color:var(--ng)}
 footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 </style>
 </head>
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.5 — 実機検証（軽量モデル切替つき）</p>
+<p class="sub">v0.6 — 検索MVP（登録 → 保存 → BM25／意味検索）</p>
 
 <div id="crash" class="status warn" hidden></div>
-<div id="status" class="status">まだモデルを読み込んでいません。Wi-Fi接続で「① モデルを読み込む」を押してください。</div>
+<div id="status" class="status">まず「サンプル8件を投入」→ 方式「BM25」で検索を試してください（モデル不要・即動きます）。</div>
 
-<h2>① モデルを読み込む</h2>
+<h2>① 文書を登録する（端末内データベース）</h2>
 <div class="card">
-  <span class="lbl">モデル</span>
-  <select id="selModel">
-    <option value="eg2" selected>EmbeddingGemma 2（主構成・高性能）</option>
-    <option value="e5s">multilingual-e5-small（軽量・安定重視）</option>
+  <span class="lbl">本文（お便り・ノート・メモなど。将来はOCRがここに文字を入れます）</span>
+  <textarea id="newDoc" placeholder="例：保護者の皆様へ：明日の遠足には…"></textarea>
+  <button id="addBtn" type="button">この文書を追加</button>
+  <div class="row2">
+    <button id="sampleBtn" class="ghost" type="button">サンプル8件を投入</button>
+    <button id="clearBtn" class="ghost" type="button">全削除</button>
+  </div>
+  <p class="meta" id="dbMeta">読み込み中…</p>
+  <ul class="docs" id="docList"></ul>
+</div>
+
+<h2>② 検索方式とモデル</h2>
+<div class="card">
+  <span class="lbl">検索方式</span>
+  <select id="selMethod">
+    <option value="bm25" selected>段階0：BM25キーワード検索（モデル不要）</option>
+    <option value="e5s">段階2：意味検索 multilingual-e5-small（スマホ標準）</option>
+    <option value="ruri30">段階2候補：意味検索 Ruri v3-30m（日本語特化・検証中）</option>
+    <option value="eg2">段階3：意味検索 EmbeddingGemma 2（PC向け）</option>
   </select>
-  <span class="lbl">実行方式</span>
+  <span class="lbl">実行方式（意味検索のみ）</span>
   <select id="selDevice">
-    <option value="auto" selected>自動（WebGPUが使えればWebGPU）</option>
-    <option value="webgpu">WebGPU（GPUで高速）</option>
-    <option value="wasm">WASM（CPU）</option>
+    <option value="auto" selected>自動（iPhoneはWASM／PC等はWebGPU）</option>
+    <option value="webgpu">WebGPU</option>
+    <option value="wasm">WASM</option>
   </select>
-  <span class="lbl">量子化（モデルの軽量化形式。軽量モデル選択時は自動固定）</span>
-  <select id="selDtype">
-    <option value="auto" selected>自動（WebGPU→q4f16 ／ WASM→q4）</option>
-    <option value="q4f16">q4f16（約157MB・省メモリ）</option>
-    <option value="q4">q4（約174MB）</option>
-    <option value="q8">q8（約314MB）</option>
-  </select>
-  <button id="loadBtn" type="button">① モデルを読み込む</button>
-  <p class="meta">ダウンロードサイズの目安：EmbeddingGemma 2 … WebGPU時 q4f16=157MB／ 軽量モデル … WebGPU時 q4f16=205MB・WASM時 q8=118MB。同じ組み合わせなら2回目以降は再ダウンロードなし。EmbeddingGemma 2 が落ちる場合は軽量モデルに切り替えてください（どの組み合わせで落ちたかは黄色い表示と③の書き出しに自動記録されます）。</p>
+  <p class="meta" id="methodNote"></p>
+  <button id="loadBtn" type="button" disabled>モデルを読み込む</button>
+  <p class="meta" id="vecMeta"></p>
+  <button id="vecBtn" class="ghost" type="button" hidden>未処理の文書を全件ベクトル化（1件ずつ・途中保存）</button>
   <pre id="prog" hidden></pre>
 </div>
 
-<h2>② 類似度を計算する</h2>
+<h2>③ 検索する</h2>
 <div class="card">
-  <span class="lbl">検索したい文（クエリ）</span>
+  <span class="lbl">検索したい内容（日本語の自然な文でOK）</span>
   <input type="text" id="q" value="遠足の持ち物を知りたい">
-  <span class="lbl">文書1</span>
-  <textarea class="doc">保護者の皆様へ：明日の遠足には水筒・雨具・お弁当を持たせてください。</textarea>
-  <span class="lbl">文書2</span>
-  <textarea class="doc">二次関数 y=ax^2 のグラフの頂点と軸の求め方について説明する。</textarea>
-  <span class="lbl">文書3</span>
-  <textarea class="doc">放課後に校庭の桜を撮影した。花がとてもきれいだった。</textarea>
-  <button id="encBtn" type="button" disabled>② ベクトル化して類似度を計算（1件ずつ処理）</button>
+  <button id="searchBtn" type="button">検索</button>
   <div id="result"></div>
 </div>
 
-<h2>③ 計測結果を書き出す</h2>
+<h2>④ 計測結果を書き出す</h2>
 <div class="card">
-  <button id="copyJson" class="ghost" type="button" disabled>結果をコピー（JSON・チャット貼り付け用）</button>
-  <button id="dlCsv" class="ghost" type="button" disabled>CSVをダウンロード（卒論の表づくり用）</button>
-  <p class="meta">iPhoneではCSVのダウンロード後に共有画面が出るので「"ファイル"に保存」を選んでください。中断（ページ再読み込み）が起きた場合、その記録も書き出しに含まれます。</p>
+  <button id="copyJson" class="ghost" type="button">結果をコピー（JSON・チャット貼り付け用）</button>
+  <button id="dlCsv" class="ghost" type="button">CSVをダウンロード（卒論の表づくり用）</button>
+  <p class="meta">文書数・モデル・方式・処理時間・検索結果・中断記録を書き出します。</p>
 </div>
 
 <details>
   <summary>（参考）v0.1 の環境チェック</summary>
   <button id="diagRun" class="ghost" type="button">この端末の対応状況を判定する</button>
   <ul class="diag" id="diagList"></ul>
-  <button id="diagCopy" class="ghost" type="button" hidden>判定結果をコピー</button>
 </details>
 
-<footer>個人データは端末の外へ送信しません（この版はライブラリとモデルの取得時のみ通信します。完全オフライン化は後の版で対応）<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
+<footer>登録した文書・ベクトルは端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
 </main>
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-
-// 使用できるモデルの定義（接頭辞＝モデルが期待する「用途ラベル」）
-const MODELS = {
-  eg2: {
-    id: "onnx-community/embeddinggemma-2-ONNX",
-    short: "EmbeddingGemma 2",
-    qp: "task: search result | query: ",
-    dp: "title: none | text: ",
-    dtypeFor: (device, manual) => (manual && manual !== "auto") ? manual : (device === "webgpu" ? "q4f16" : "q4")
-  },
-  e5s: {
-    id: "Xenova/multilingual-e5-small",
-    short: "multilingual-e5-small",
-    qp: "query: ",
-    dp: "passage: ",
-    dtypeFor: (device) => (device === "webgpu" ? "q4f16" : "q8")
-  }
-};
-
-const state = {
-  extractor: null, modelKey: null, modelId: null, device: null, dtype: null, dim: null,
-  loadMs: null, warmupMs: null, items: [], ranking: [],
-  error: null, lastInterrupted: null
-};
-
-function setStatus(msg, kind) {
-  const el = $("status");
-  el.textContent = msg;
-  el.className = "status" + (kind ? " " + kind : "");
-}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function free(t) { try { if (t && typeof t.dispose === "function") t.dispose(); } catch (e) {} }
+function setStatus(msg, kind) { const el = $("status"); el.textContent = msg; el.className = "status" + (kind ? " " + kind : ""); }
 
-// 軽量モデル選択時は量子化を自動に固定
-$("selModel").addEventListener("change", () => {
-  const isE5 = $("selModel").value === "e5s";
-  if (isE5) $("selDtype").value = "auto";
-  $("selDtype").disabled = isE5;
+// ===== モデル定義 =====
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const MODELS = {
+  e5s:    { id: "Xenova/multilingual-e5-small",        short: "e5-small",        qp: "query: ",                      dp: "passage: ",               dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q8" },
+  ruri30: { id: "sirasagi62/ruri-v3-30m-ONNX",         short: "Ruri v3-30m",     qp: "検索クエリ: ",                  dp: "検索文書: ",               dtypeFor: (d) => d === "webgpu" ? "fp16" : "q8" },
+  eg2:    { id: "onnx-community/embeddinggemma-2-ONNX", short: "EmbeddingGemma 2", qp: "task: search result | query: ", dp: "title: none | text: ",    dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q4" }
+};
+const NOTES = {
+  bm25: "単語（文字2つ組）の一致で探す古典手法。モデル不要で全端末で即動きます。言い換えには弱い＝意味検索との比較基準。",
+  e5s: "iPhone実測で安定（WASM・118MB・1文24〜44ms）。多言語対応。",
+  ruri30: "日本語特化の超小型モデル（約1/4規模・検証中）。接頭辞は暫定設定。初回に数十MBをダウンロード。",
+  eg2: "高性能だがiPhoneでは不安定（PC・対応端末向け。測定用に残しています）。"
+};
+
+// ===== 状態 =====
+const state = {
+  docs: [], extractor: null, loadedKey: null, device: null, dtype: null,
+  loadMs: null, warmupMs: null, embedMs: [], lastSearch: null,
+  error: null, lastInterrupted: null
+};
+
+// ===== 中断検知 =====
+const PHASE_KEY = "ops-phase";
+function setPhase(p) { try { localStorage.setItem(PHASE_KEY, JSON.stringify({ phase: p, at: new Date().toISOString() })); } catch (e) {} }
+function clearPhase() { try { localStorage.removeItem(PHASE_KEY); } catch (e) {} }
+(function () {
+  try {
+    const raw = localStorage.getItem(PHASE_KEY);
+    if (!raw) return;
+    state.lastInterrupted = JSON.parse(raw);
+    localStorage.removeItem(PHASE_KEY);
+    const el = $("crash");
+    el.hidden = false;
+    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされました。ベクトル化は1件ごとに保存済みなので、続きから再開できます。この文言はチャットに貼ってください。";
+  } catch (e) {}
+})();
+
+// ===== IndexedDB =====
+function openDb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("ops-db", 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore("docs", { keyPath: "id" }); };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function dbAll() {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const t = db.transaction("docs", "readonly").objectStore("docs").getAll();
+    t.onsuccess = () => res(t.result || []);
+    t.onerror = () => rej(t.error);
+  });
+}
+async function dbPut(doc) {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const t = db.transaction("docs", "readwrite");
+    t.objectStore("docs").put(doc);
+    t.oncomplete = () => res();
+    t.onerror = () => rej(t.error);
+  });
+}
+async function dbDel(id) {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const t = db.transaction("docs", "readwrite");
+    t.objectStore("docs").delete(id);
+    t.oncomplete = () => res();
+    t.onerror = () => rej(t.error);
+  });
+}
+async function dbClear() {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const t = db.transaction("docs", "readwrite");
+    t.objectStore("docs").clear();
+    t.oncomplete = () => res();
+    t.onerror = () => rej(t.error);
+  });
+}
+
+// ===== 文書の登録・一覧 =====
+const SAMPLES = [
+  "保護者の皆様へ：明日の遠足には水筒・雨具・お弁当を持たせてください。集合は8時30分、体育館前です。",
+  "二次関数 y=ax^2 のグラフの頂点と軸の求め方。平方完成を使って頂点の座標を求める。",
+  "放課後に校庭の桜を撮影した。花がとてもきれいで、来週には散り始めそうだ。",
+  "技術科の実習メモ：ボール盤を使うときは回転数を材料に合わせて設定し、保護メガネを必ず着用すること。",
+  "理科の実験ノート：うすい塩酸と亜鉛を反応させると水素が発生する。火気厳禁。",
+  "持久走大会のお知らせ：11月の第2週に実施予定。体操服と水筒を忘れずに。",
+  "調理実習の持ち物：エプロン、三角巾、ふきん2枚、米1合。",
+  "歴史の暗記メモ：鎌倉幕府の成立は1192年ではなく1185年とする説が有力。"
+];
+function newId() { return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
+
+function renderDocs() {
+  const counts = { e5s: 0, ruri30: 0, eg2: 0 };
+  for (const d of state.docs) for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
+  $("dbMeta").textContent = "登録 " + state.docs.length + " 件 ／ ベクトル化済み：e5-small " + counts.e5s + "・Ruri " + counts.ruri30 + "・EG2 " + counts.eg2;
+  const list = $("docList");
+  list.innerHTML = "";
+  const latest = state.docs.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5);
+  for (const d of latest) {
+    const li = document.createElement("li");
+    const span = document.createElement("span");
+    span.textContent = d.text;
+    const btn = document.createElement("button");
+    btn.className = "mini";
+    btn.type = "button";
+    btn.textContent = "削除";
+    btn.addEventListener("click", async () => { await dbDel(d.id); state.docs = state.docs.filter((x) => x.id !== d.id); renderDocs(); updateVecMeta(); });
+    li.appendChild(span);
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+  updateVecMeta();
+}
+
+async function addDoc(text) {
+  const doc = { id: newId(), text: text, createdAt: new Date().toISOString(), vecs: {} };
+  if (state.extractor && state.loadedKey) {
+    try {
+      setPhase("登録時ベクトル化（" + MODELS[state.loadedKey].short + "）");
+      const out = await state.extractor([MODELS[state.loadedKey].dp + text], ENC_OPTS);
+      doc.vecs[state.loadedKey] = toVec(out);
+      free(out);
+      clearPhase();
+    } catch (e) { clearPhase(); }
+  }
+  await dbPut(doc);
+  state.docs.push(doc);
+  renderDocs();
+}
+
+$("addBtn").addEventListener("click", async () => {
+  const t = $("newDoc").value.trim();
+  if (!t) { alert("本文を入力してください"); return; }
+  await addDoc(t);
+  $("newDoc").value = "";
+  setStatus("✅ 追加しました（計 " + state.docs.length + " 件）", "ok");
+});
+$("sampleBtn").addEventListener("click", async () => {
+  for (const s of SAMPLES) await addDoc(s);
+  setStatus("✅ サンプル8件を投入しました。まずBM25で「遠足 持ち物」などを検索してみてください。", "ok");
+});
+$("clearBtn").addEventListener("click", async () => {
+  if (!confirm("登録した文書をすべて削除します。よろしいですか？")) return;
+  await dbClear();
+  state.docs = [];
+  renderDocs();
+  setStatus("全削除しました。");
 });
 
-// ---- 文ベクトル化：pooling(平均)＋normalize(正規化)。保険の自前処理つき ----
+// ===== ベクトル化（意味検索の準備） =====
 const ENC_OPTS = { pooling: "mean", normalize: true };
 function toVec(out) {
   let v = out.tolist()[0];
@@ -167,24 +292,8 @@ function toVec(out) {
   for (let j = 0; j < v.length; j++) v[j] = v[j] / s;
   return v;
 }
+function dot(a, b) { let s = 0; const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) s += a[i] * b[i]; return s; }
 
-// ---- 中断（クラッシュ）検知 ----
-const PHASE_KEY = "ops-phase";
-function setPhase(p) { try { localStorage.setItem(PHASE_KEY, JSON.stringify({ phase: p, at: new Date().toISOString() })); } catch (e) {} }
-function clearPhase() { try { localStorage.removeItem(PHASE_KEY); } catch (e) {} }
-(function detectInterrupt() {
-  try {
-    const raw = localStorage.getItem(PHASE_KEY);
-    if (!raw) return;
-    state.lastInterrupted = JSON.parse(raw);
-    localStorage.removeItem(PHASE_KEY);
-    const el = $("crash");
-    el.hidden = false;
-    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされました（メモリ不足の可能性大）。この文言をそのままチャットに貼ってください。対処：他のタブ・アプリを閉じる／端末再起動後に再試行／モデルを「軽量」に切替。";
-  } catch (e) {}
-})();
-
-// ---- ① モデル読み込み（＋ウォームアップ） ----
 const progress = {};
 function renderProgress() {
   const lines = Object.values(progress).map((p) => {
@@ -197,211 +306,297 @@ function renderProgress() {
   pre.textContent = lines.join("\n");
 }
 
-function resolveConfig() {
-  const modelKey = $("selModel").value;
-  const m = MODELS[modelKey];
-  let device = $("selDevice").value;
-  if (device === "auto") device = ("gpu" in navigator) ? "webgpu" : "wasm";
-  const dtype = m.dtypeFor(device, $("selDtype").value);
-  return { modelKey, m, device, dtype };
+function currentMethod() { return $("selMethod").value; }
+function resolveDevice() {
+  const v = $("selDevice").value;
+  if (v !== "auto") return v;
+  if (isIOS) return "wasm";
+  return ("gpu" in navigator) ? "webgpu" : "wasm";
 }
+function pendingDocs(key) { return state.docs.filter((d) => !(d.vecs && d.vecs[key])); }
+
+function updateVecMeta() {
+  const m = currentMethod();
+  $("methodNote").textContent = NOTES[m] || "";
+  const emb = m !== "bm25";
+  $("loadBtn").disabled = !emb || (state.loadedKey === m && !!state.extractor);
+  $("loadBtn").textContent = emb ? ("モデルを読み込む（" + MODELS[m].short + "）") : "モデルを読み込む（BM25では不要）";
+  if (!emb) { $("vecMeta").textContent = ""; $("vecBtn").hidden = true; return; }
+  const pend = pendingDocs(m).length;
+  const ready = state.loadedKey === m && !!state.extractor;
+  $("vecMeta").textContent = ready
+    ? (pend > 0 ? "このモデルで未ベクトル化：" + pend + " 件" : "全 " + state.docs.length + " 件ベクトル化済み。③で検索できます。")
+    : "先に「モデルを読み込む」を押してください。";
+  $("vecBtn").hidden = !(ready && pend > 0);
+}
+$("selMethod").addEventListener("change", updateVecMeta);
 
 async function loadModel() {
-  const cfg = resolveConfig();
-  state.modelKey = cfg.modelKey;
-  state.modelId = cfg.m.id;
-  state.device = cfg.device;
-  state.dtype = cfg.dtype;
+  const key = currentMethod();
+  if (key === "bm25") return;
+  const m = MODELS[key];
+  const device = resolveDevice();
+  const dtype = m.dtypeFor(device);
+  state.device = device;
+  state.dtype = dtype;
   $("loadBtn").disabled = true;
-  $("selModel").disabled = true;
+  $("selMethod").disabled = true;
   $("selDevice").disabled = true;
-  $("selDtype").disabled = true;
   for (const k of Object.keys(progress)) delete progress[k];
   $("prog").hidden = true;
-  setStatus("モデル読み込み中（" + cfg.m.short + " / " + cfg.device + " / " + cfg.dtype + "）… 画面を切り替えないでください。");
+  setStatus("モデル読み込み中（" + m.short + " / " + device + " / " + dtype + "）… 画面を切り替えないでください。");
   const t0 = performance.now();
   try {
-    setPhase("モデル読み込み（" + cfg.m.short + "・" + cfg.device + "/" + cfg.dtype + "）");
+    setPhase("モデル読み込み（" + m.short + "・" + device + "/" + dtype + "）");
+    state.extractor = null;
     const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1");
-    state.extractor = await pipeline("feature-extraction", cfg.m.id, {
-      device: cfg.device,
-      dtype: cfg.dtype,
+    state.extractor = await pipeline("feature-extraction", m.id, {
+      device: device,
+      dtype: dtype,
       progress_callback: (p) => {
         if (!p || !p.file) return;
         if (p.status === "progress") { progress[p.file] = p; renderProgress(); }
         if (p.status === "done") { progress[p.file] = { file: p.file, progress: 100 }; renderProgress(); }
       }
     });
+    state.loadedKey = key;
     state.loadMs = Math.round(performance.now() - t0);
 
-    setPhase("ウォームアップ（" + cfg.m.short + "・初回推論）");
-    setStatus("ウォームアップ中（初回の準備に少し時間がかかります）…");
+    setPhase("ウォームアップ（" + m.short + "）");
     const tw = performance.now();
-    const w = await state.extractor([cfg.m.qp + "ウォームアップ"], ENC_OPTS);
+    const w = await state.extractor([m.qp + "ウォームアップ"], ENC_OPTS);
     free(w);
     state.warmupMs = Math.round(performance.now() - tw);
     await sleep(300);
     clearPhase();
 
-    setStatus("✅ 準備完了：読み込み " + (state.loadMs / 1000).toFixed(1) + " 秒＋ウォームアップ " + (state.warmupMs / 1000).toFixed(1) + " 秒（" + cfg.m.short + " / " + cfg.device + " / " + cfg.dtype + "）。②に進んでください。", "ok");
-    $("encBtn").disabled = false;
+    setStatus("✅ 準備完了：読み込み " + (state.loadMs / 1000).toFixed(1) + " 秒（" + m.short + " / " + device + " / " + dtype + "）。未処理があればベクトル化してください。", "ok");
   } catch (e) {
     clearPhase();
     state.error = String(e && e.message ? e.message : e);
-    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：モデルを「軽量」に切り替えて再試行。このエラー文をチャットに貼ってください。", "ng");
-    $("loadBtn").disabled = false;
-    $("selModel").disabled = false;
+    setStatus("❌ 読み込みに失敗：" + state.error + " ／ このエラー文をチャットに貼ってください。", "ng");
+    state.extractor = null;
+    state.loadedKey = null;
+  } finally {
+    $("selMethod").disabled = false;
     $("selDevice").disabled = false;
-    $("selDtype").disabled = $("selModel").value === "e5s";
+    updateVecMeta();
   }
 }
 $("loadBtn").addEventListener("click", loadModel);
 
-// ---- ② 類似度計算（1件ずつ直列処理） ----
-function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
-
-async function runSimilarity() {
-  if (!state.extractor) {
-    setStatus("ページが再読み込みされたため、モデルがメモリから解放されています。①からやり直してください（同じ組み合わせなら再ダウンロードは不要です）。", "ng");
-    return;
-  }
-  const m = MODELS[state.modelKey];
-  const q = $("q").value.trim();
-  const docs = Array.from(document.querySelectorAll(".doc")).map((t) => t.value.trim()).filter(Boolean);
-  if (!q || docs.length === 0) { alert("クエリと文書を入力してください"); return; }
-
-  $("encBtn").disabled = true;
-  const texts = [{ label: "クエリ", input: m.qp + q }]
-    .concat(docs.map((d, i) => ({ label: "文書" + (i + 1), input: m.dp + d, raw: d })));
-  const vectors = [];
-  state.items = [];
+async function vectorizeAll() {
+  const key = state.loadedKey;
+  if (!key || !state.extractor) return;
+  const m = MODELS[key];
+  const pend = pendingDocs(key);
+  $("vecBtn").disabled = true;
+  state.embedMs = [];
   try {
-    for (let i = 0; i < texts.length; i++) {
-      setPhase("類似度計算：" + texts[i].label + "（" + (i + 1) + "/" + texts.length + "・" + m.short + "）");
-      setStatus("ベクトル化中 " + (i + 1) + "/" + texts.length + "（" + texts[i].label + "）… 画面を切り替えないでください。");
+    for (let i = 0; i < pend.length; i++) {
+      setPhase("ベクトル化 " + (i + 1) + "/" + pend.length + "（" + m.short + "）");
+      setStatus("ベクトル化中 " + (i + 1) + "/" + pend.length + "（" + m.short + "）… 画面を切り替えないでください。");
       const t0 = performance.now();
-      const out = await state.extractor([texts[i].input], ENC_OPTS);
+      const out = await state.extractor([m.dp + pend[i].text], ENC_OPTS);
       const v = toVec(out);
       free(out);
-      const ms = Math.round(performance.now() - t0);
-      vectors.push(v);
-      state.items.push({ label: texts[i].label, ms: ms });
-      await sleep(50);
+      state.embedMs.push(Math.round(performance.now() - t0));
+      pend[i].vecs = pend[i].vecs || {};
+      pend[i].vecs[key] = v;
+      await dbPut(pend[i]); // 1件ごとに保存（中断しても続きから）
+      renderDocs();
+      await sleep(40);
     }
     clearPhase();
-
-    const qv = vectors[0];
-    state.dim = qv.length;
-    if (state.dim < 64) throw new Error("ベクトル次元が異常です（" + state.dim + "）。この文面をチャットに貼ってください。");
-
-    state.ranking = vectors.slice(1)
-      .map((v, i) => ({ text: texts[i + 1].raw, score: dot(qv, v) }))
-      .sort((a, b) => b.score - a.score)
-      .map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text }));
-    if (state.ranking.some((r) => !Number.isFinite(r.score))) {
-      throw new Error("類似度の計算結果が数値になりませんでした。この文面をチャットに貼ってください。");
-    }
-
-    const times = state.items.map((x) => x.label + " " + x.ms + "ms").join(" ／ ");
-    const rows = state.ranking.map((r, i) =>
-      '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(4) + "</td><td>" + escapeHtml(r.text) + "</td></tr>"
-    ).join("");
-    $("result").innerHTML =
-      '<p class="meta">モデル: ' + m.short + " ／ ベクトル次元: " + state.dim + " ／ 処理時間: " + times + "</p>" +
-      "<table><tr><th>類似度（コサイン）</th><th>文書</th></tr>" + rows + "</table>";
-    setStatus("✅ 計算完了。1位がクエリの意味に最も近い文書です。③で結果を書き出せます。", "ok");
-    $("copyJson").disabled = false;
-    $("dlCsv").disabled = false;
+    const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, b) => a + b, 0) / state.embedMs.length) : 0;
+    setStatus("✅ ベクトル化完了（" + state.embedMs.length + " 件・平均 " + avg + " ms/件）。③で検索できます。", "ok");
   } catch (e) {
     clearPhase();
     state.error = String(e && e.message ? e.message : e);
-    setStatus("❌ 計算に失敗：" + state.error, "ng");
+    setStatus("❌ ベクトル化に失敗：" + state.error + "（処理済みの分は保存されています）", "ng");
   } finally {
-    $("encBtn").disabled = !state.extractor;
+    $("vecBtn").disabled = false;
+    updateVecMeta();
   }
 }
-$("encBtn").addEventListener("click", runSimilarity);
+$("vecBtn").addEventListener("click", vectorizeAll);
 
-// ---- ③ 書き出し ----
+// ===== BM25（文字2-gram） =====
+function grams(s) {
+  s = String(s).replace(/\s+/g, "");
+  const a = [];
+  if (s.length <= 1) { if (s) a.push(s); return a; }
+  for (let i = 0; i < s.length - 1; i++) a.push(s.slice(i, i + 2));
+  return a;
+}
+function bm25Search(query) {
+  const k1 = 1.2, b = 0.75;
+  const docG = state.docs.map((d) => grams(d.text));
+  const lens = docG.map((g) => g.length || 1);
+  const avg = lens.reduce((a, x) => a + x, 0) / Math.max(1, lens.length);
+  const qset = Array.from(new Set(grams(query)));
+  const N = state.docs.length;
+  const scores = state.docs.map((d, i) => {
+    let score = 0;
+    for (const g of qset) {
+      let tf = 0;
+      for (const x of docG[i]) if (x === g) tf++;
+      if (!tf) continue;
+      let df = 0;
+      for (const gg of docG) if (gg.includes(g)) df++;
+      const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
+      score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (lens[i] / avg)));
+    }
+    return { text: d.text, score: score };
+  });
+  return scores.sort((a, x) => x.score - a.score);
+}
+
+// ===== 検索 =====
+async function runSearch() {
+  const method = currentMethod();
+  const q = $("q").value.trim();
+  if (!q) { alert("検索したい内容を入力してください"); return; }
+  if (state.docs.length === 0) { setStatus("文書が0件です。先に①で登録（またはサンプル投入）してください。", "ng"); return; }
+
+  $("searchBtn").disabled = true;
+  try {
+    let results, took, extra = "";
+    if (method === "bm25") {
+      const t0 = performance.now();
+      results = bm25Search(q);
+      took = Math.round(performance.now() - t0);
+    } else {
+      const m = MODELS[method];
+      if (!state.extractor || state.loadedKey !== method) {
+        setStatus("このモデルはまだ読み込まれていません。②で「モデルを読み込む」を押してください。", "ng");
+        return;
+      }
+      const pend = pendingDocs(method).length;
+      if (pend > 0) {
+        setStatus("未ベクトル化の文書が " + pend + " 件あります。②の「全件をベクトル化」を押してから検索してください。", "ng");
+        return;
+      }
+      setPhase("検索クエリのベクトル化（" + m.short + "）");
+      const t0 = performance.now();
+      const out = await state.extractor([m.qp + q], ENC_OPTS);
+      const qv = toVec(out);
+      free(out);
+      const t1 = performance.now();
+      results = state.docs
+        .map((d) => ({ text: d.text, score: dot(qv, d.vecs[method]) }))
+        .sort((a, x) => x.score - a.score);
+      took = Math.round(performance.now() - t0);
+      extra = "（クエリ処理 " + Math.round(t1 - t0) + " ms・次元 " + qv.length + "）";
+      clearPhase();
+    }
+    const top = results.slice(0, 10).map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text }));
+    state.lastSearch = { query: q, method: method, tookMs: took, results: top };
+    const label = method === "bm25" ? "BM25" : MODELS[method].short;
+    const rows = top.map((r, i) =>
+      '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(method === "bm25" ? 2 : 4) + "</td><td>" + escapeHtml(r.text) + "</td></tr>"
+    ).join("");
+    $("result").innerHTML =
+      '<p class="meta">方式: ' + label + " ／ 対象 " + state.docs.length + " 件 ／ 所要 " + took + " ms " + extra + "</p>" +
+      "<table><tr><th>スコア</th><th>文書</th></tr>" + rows + "</table>";
+    setStatus("✅ 検索完了（" + label + "）。④で結果を書き出せます。", "ok");
+  } catch (e) {
+    clearPhase();
+    state.error = String(e && e.message ? e.message : e);
+    setStatus("❌ 検索に失敗：" + state.error, "ng");
+  } finally {
+    $("searchBtn").disabled = false;
+  }
+}
+$("searchBtn").addEventListener("click", runSearch);
+
+// ===== 書き出し =====
 function buildReport() {
+  const counts = { e5s: 0, ruri30: 0, eg2: 0 };
+  for (const d of state.docs) for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
+  const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   return {
-    app: "offline-photo-search v0.5",
+    app: "offline-photo-search v0.6",
     checkedAt: new Date().toISOString(),
-    model: state.modelId,
+    docCount: state.docs.length,
+    vectorized: counts,
+    loadedModel: state.loadedKey ? MODELS[state.loadedKey].id : null,
     device: state.device,
     dtype: state.dtype,
-    dim: state.dim,
     modelLoadMs: state.loadMs,
     warmupMs: state.warmupMs,
-    perItemMs: state.items,
-    ranking: state.ranking,
+    embedAvgMs: avg,
+    lastSearch: state.lastSearch,
     lastInterrupted: state.lastInterrupted,
     error: state.error,
     userAgent: navigator.userAgent
   };
 }
-
 $("copyJson").addEventListener("click", async () => {
   const text = JSON.stringify(buildReport(), null, 2);
   try { await navigator.clipboard.writeText(text); alert("コピーしました。チャットに貼り付けてください。"); }
   catch (e) { window.prompt("以下を全選択してコピーしてください", text); }
 });
-
 $("dlCsv").addEventListener("click", () => {
   const r = buildReport();
   const head = [
     ["項目", "値"],
     ["計測日時", r.checkedAt],
-    ["モデル", r.model],
-    ["実行方式", r.device],
-    ["量子化", r.dtype],
-    ["ベクトル次元", r.dim],
+    ["文書数", r.docCount],
+    ["ベクトル化済み e5-small", r.vectorized.e5s],
+    ["ベクトル化済み Ruri v3-30m", r.vectorized.ruri30],
+    ["ベクトル化済み EmbeddingGemma 2", r.vectorized.eg2],
+    ["読み込み中モデル", r.loadedModel || "なし"],
+    ["実行方式", r.device || "—"],
+    ["量子化", r.dtype || "—"],
     ["モデル読み込み時間(ms)", r.modelLoadMs],
-    ["ウォームアップ時間(ms)", r.warmupMs],
+    ["ベクトル化 平均(ms/件)", r.embedAvgMs],
+    ["検索クエリ", r.lastSearch ? r.lastSearch.query : "—"],
+    ["検索方式", r.lastSearch ? r.lastSearch.method : "—"],
+    ["検索所要(ms)", r.lastSearch ? r.lastSearch.tookMs : "—"],
     ["前回の中断", r.lastInterrupted ? r.lastInterrupted.phase : "なし"],
     ["UserAgent", r.userAgent]
   ];
-  const t1 = [[], ["処理対象", "時間(ms)"]].concat(r.perItemMs.map((x) => [x.label, x.ms]));
-  const t2 = [[], ["順位", "類似度", "文書"]].concat(r.ranking.map((x) => [x.rank, x.score, x.text]));
+  const t2 = [[], ["順位", "スコア", "文書"]].concat((r.lastSearch ? r.lastSearch.results : []).map((x) => [x.rank, x.score, x.text]));
   const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
-  const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
+  const csv = "﻿" + head.concat(t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "embedding-check-v05.csv";
+  a.download = "search-mvp-v06.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
 
-// ---- （参考）v0.1 環境チェック ----
-const diagItems = [];
-function diagRow(key, value, ok) {
-  diagItems.push({ key: key, value: String(value), ok: ok === undefined ? null : ok });
-  const li = document.createElement("li");
-  li.innerHTML = '<span class="k">' + escapeHtml(key) + '</span><span class="v ' + (ok === true ? "okc" : ok === false ? "ngc" : "") + '">' + escapeHtml(String(value)) + "</span>";
-  $("diagList").appendChild(li);
-}
+// ===== v0.1 環境チェック =====
 async function diagRun() {
-  $("diagList").innerHTML = ""; diagItems.length = 0;
-  diagRow("判定日時", new Date().toLocaleString("ja-JP"));
-  diagRow("ブラウザ (UserAgent)", navigator.userAgent);
-  try {
-    if (!("gpu" in navigator)) diagRow("WebGPU", "非対応", false);
-    else { const a = await navigator.gpu.requestAdapter(); diagRow("WebGPU", a ? "対応" : "アダプタ取得失敗", !!a); }
-  } catch (e) { diagRow("WebGPU", "エラー: " + e.message, false); }
-  diagRow("WebAssembly (WASM)", typeof WebAssembly === "object" ? "対応" : "非対応", typeof WebAssembly === "object");
-  diagRow("Service Worker", "serviceWorker" in navigator ? "対応" : "非対応", "serviceWorker" in navigator);
-  diagRow("クロスオリジン分離", (typeof crossOriginIsolated !== "undefined" && crossOriginIsolated) ? "有効" : "無効");
-  try { const est = await navigator.storage.estimate(); diagRow("ストレージ割当の目安", Math.round((est.quota || 0) / 1048576) + " MB（使用中 " + Math.round((est.usage || 0) / 1048576) + " MB）", true); }
-  catch (e) { diagRow("ストレージ割当の目安", "取得不可"); }
-  diagRow("表示モード", window.matchMedia("(display-mode: standalone)").matches ? "ホーム画面から起動（PWA）" : "ブラウザ内で表示");
-  $("diagCopy").hidden = false;
+  const list = $("diagList");
+  list.innerHTML = "";
+  function row(k, v) {
+    const li = document.createElement("li");
+    li.innerHTML = '<span class="k">' + escapeHtml(k) + '</span><span class="v">' + escapeHtml(String(v)) + "</span>";
+    list.appendChild(li);
+  }
+  row("ブラウザ (UserAgent)", navigator.userAgent);
+  try { row("WebGPU", "gpu" in navigator ? ((await navigator.gpu.requestAdapter()) ? "対応" : "アダプタ取得失敗") : "非対応"); }
+  catch (e) { row("WebGPU", "エラー: " + e.message); }
+  row("WebAssembly", typeof WebAssembly === "object" ? "対応" : "非対応");
+  try { const est = await navigator.storage.estimate(); row("ストレージ割当の目安", Math.round((est.quota || 0) / 1048576) + " MB（使用中 " + Math.round((est.usage || 0) / 1048576) + " MB）"); }
+  catch (e) { row("ストレージ割当の目安", "取得不可"); }
+  row("表示モード", window.matchMedia("(display-mode: standalone)").matches ? "ホーム画面から起動（PWA）" : "ブラウザ内で表示");
 }
 $("diagRun").addEventListener("click", diagRun);
-$("diagCopy").addEventListener("click", async () => {
-  const text = JSON.stringify({ app: "offline-photo-search v0.5 diag", results: diagItems }, null, 2);
-  try { await navigator.clipboard.writeText(text); alert("コピーしました。"); }
-  catch (e) { window.prompt("以下をコピーしてください", text); }
-});
+
+// ===== 初期化 =====
+(async function init() {
+  try {
+    state.docs = await dbAll();
+  } catch (e) {
+    state.error = "IndexedDBを開けません: " + e;
+    setStatus("❌ 端末内データベースを開けませんでした：" + e, "ng");
+  }
+  renderDocs();
+  updateVecMeta();
+})();
 </script>
 </body>
 </html>
