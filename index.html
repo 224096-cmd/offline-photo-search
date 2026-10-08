@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.11</title>
+<title>オフライン画像・文書 意味検索 v0.12</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
@@ -62,7 +62,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.11 — サンプル刷新（実物調）・UI改善・バグ検証パス</p>
+<p class="sub">v0.12 — 公開データセット由来の評価セット同梱（JSQuAD・STAIR）／RQ3を性質の違う3セットで比較</p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
@@ -136,6 +136,13 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <h2>④ 精度評価（ミニベンチ・RQ3用）</h2>
 <div class="card">
   <p class="meta" id="benchMeta">内蔵評価セット「学校文書ミニベンチ v1」：文書20件・質問15問（言い換え中心）。現在の「検索方式」で一括実行し、正解文書が何位に出たかを集計します（①で登録した文書とは独立に動きます）。</p>
+  <span class="lbl">評価セットを選ぶ（性質の違う3セット＋自分のJSON）</span>
+  <select id="evalPick">
+    <option value="builtin" selected>学校文書ミニベンチ v1（内蔵）— 言い換え中心・20文書15問</option>
+    <option value="jsquad">JSQuAD抜粋50 — Wikipedia段落＋実際の質問・語が重なりやすい（CC BY-SA 4.0）</option>
+    <option value="stair">STAIR抜粋50 — 同じ画像の別キャプション＝純粋な言い換え（CC BY 4.0）</option>
+    <option value="custom" disabled>読み込んだJSONファイル</option>
+  </select>
   <button id="benchBtn" type="button">この方式・モデルでベンチを実行</button>
   <button id="evalLoadBtn" class="ghost" type="button">評価セットJSONを読み込んで差し替え</button>
   <input type="file" id="evalFile" accept=".json,application/json" hidden>
@@ -1017,6 +1024,36 @@ async function runBench() {
 }
 $("benchBtn").addEventListener("click", runBench);
 $("evalLoadBtn").addEventListener("click", () => $("evalFile").click());
+function applyEvalSet(j, fallbackName) {
+  if (!j || !Array.isArray(j.docs) || !Array.isArray(j.queries) || !j.docs.length || !j.queries.length) throw new Error("docs / queries の配列が必要です");
+  for (const d of j.docs) if (!d.id || !d.text) throw new Error("docs の各要素に id と text が必要です");
+  for (const q of j.queries) if (!q.q || !Array.isArray(q.gold) || !q.gold.length) throw new Error("queries の各要素に q と gold（配列）が必要です");
+  EVAL = { name: j.name || fallbackName, docs: j.docs, queries: j.queries };
+  for (const k of Object.keys(evalVecs)) delete evalVecs[k];
+  $("benchMeta").textContent = "評価セット：" + EVAL.name + "（文書 " + EVAL.docs.length + " 件・質問 " + EVAL.queries.length + " 問）。現在の検索方式で一括実行します。方式を変えて押し直すと比較できます。";
+}
+const EVAL_BUNDLED = { jsquad: "eval/eval-jsquad-50.json", stair: "eval/eval-stair-50.json" };
+$("evalPick").addEventListener("change", async () => {
+  const v = $("evalPick").value;
+  if (v === "custom") return;
+  if (v === "builtin") {
+    applyEvalSet(EVAL_DEFAULT, EVAL_DEFAULT.name);
+    setStatus("内蔵の学校文書ミニベンチに戻しました。", "ok");
+    return;
+  }
+  if (!EVAL_BUNDLED[v]) return;
+  try {
+    setStatus("評価セットを取得中…（初回のみ通信。以後はオフラインでも使えます）");
+    const res = await fetch(EVAL_BUNDLED[v]);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    applyEvalSet(await res.json(), v);
+    setStatus("✅ 評価セットを切り替えました：" + EVAL.name + "。「ベンチを実行」で集計します。", "ok");
+  } catch (err) {
+    $("evalPick").value = "builtin";
+    applyEvalSet(EVAL_DEFAULT, EVAL_DEFAULT.name);
+    setStatus("❌ 同梱評価セットを取得できませんでした（オフラインで未取得の可能性）。内蔵セットに戻しました。", "ng");
+  }
+});
 $("evalFile").addEventListener("change", (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = "";
@@ -1024,13 +1061,11 @@ $("evalFile").addEventListener("change", (e) => {
   const fr = new FileReader();
   fr.onload = () => {
     try {
-      const j = JSON.parse(String(fr.result));
-      if (!j || !Array.isArray(j.docs) || !Array.isArray(j.queries) || !j.docs.length || !j.queries.length) throw new Error("docs / queries の配列が必要です");
-      for (const d of j.docs) if (!d.id || !d.text) throw new Error("docs の各要素に id と text が必要です");
-      for (const q of j.queries) if (!q.q || !Array.isArray(q.gold) || !q.gold.length) throw new Error("queries の各要素に q と gold（配列）が必要です");
-      EVAL = { name: j.name || f.name, docs: j.docs, queries: j.queries };
-      for (const k of Object.keys(evalVecs)) delete evalVecs[k];
-      $("benchMeta").textContent = "読み込んだ評価セット：" + EVAL.name + "（文書 " + EVAL.docs.length + " 件・質問 " + EVAL.queries.length + " 問）。現在の検索方式で一括実行します。";
+      applyEvalSet(JSON.parse(String(fr.result)), f.name);
+      const opt = $("evalPick").querySelector('option[value="custom"]');
+      opt.disabled = false;
+      opt.textContent = "読み込んだJSON：" + EVAL.name;
+      $("evalPick").value = "custom";
       setStatus("✅ 評価セットを差し替えました：" + EVAL.name, "ok");
     } catch (err) {
       alert("評価セットを読み込めません：" + err.message);
@@ -1051,7 +1086,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.11",
+    app: "offline-photo-search v0.12",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
@@ -1108,7 +1143,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2, t3).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v011.csv";
+  a.download = "ocr-search-v012.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });

@@ -3,10 +3,10 @@
 // - CDN（transformers.js / ONNX Runtime / Tesseract.js本体）：キャッシュ優先（2回目以降はオフラインで動く）
 // - Hugging Faceのモデル・Tesseractの日本語データ：各ライブラリ自身がキャッシュするため素通し
 
-const VER = "v0.11";
+const VER = "v0.12";
 const SHELL = "ops-shell-" + VER;
 const CDN = "ops-cdn-" + VER;
-const SHELL_URLS = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
+const SHELL_URLS = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "./eval/eval-jsquad-50.json", "./eval/eval-stair-50.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(

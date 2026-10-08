@@ -4,10 +4,31 @@
 スマートフォンのブラウザだけで動く「完全オフライン意味検索」PWA を開発します。
 
 - 公開URL: https://224096-cmd.github.io/offline-photo-search/
-- 検索は4段階構成（BM25 → 静的埋め込み → e5-small／Ruri → EmbeddingGemma 2）で、端末ごとに動く段階を使う
+- 検索は4段階構成（BM25 → Ruri v3-30m → multilingual-e5-small → EmbeddingGemma 2）で、端末ごとに動く段階を使う
 - 写真・文字・ベクトルは端末内（IndexedDB）にのみ保存し、外部へ送信しません
 
 ## 現在の状態
+
+**v0.12** — 公開データセット由来の評価セットを同梱。RQ3を「性質の違う3セット」で比較できるように。
+
+- **評価セットの選択式に**：④に評価セットの選択欄を追加。内蔵の学校文書ミニベンチに加え、
+  公開データセットから機械抽出した2セット（`eval/` フォルダ・再生成スクリプト付き）を同梱
+  - **JSQuAD抜粋50**（JGLUE・CC BY-SA 4.0）：Wikipedia段落50件＋実際の質問20問。質問と文書で語が重なりやすい
+  - **STAIR抜粋50**（STAIR Captions・CC BY 4.0）：同じ画像の別キャプションをクエリにした「純粋な言い換え」50件20問
+    （クエリと文書の文字2-gram重複率 中央値8.2%）
+- **BM25の基準値（Node.jsでアプリと同一ロジックを実行した事前計測）**：
+  JSQuAD＝R@1 95%・MRR 0.975（語が重なる条件ではBM25で十分）／
+  STAIR＝R@1 15%・MRR 0.210（言い換えには対応できない）／
+  学校文書＝R@1 67%・MRR 0.767（中間）。
+  **この差が意味検索（埋め込み）の出番を定量的に示す**＝RQ3の比較軸
+- 同梱セットはService Workerの初回キャッシュに含めたため、一度ページを開けばオフラインでも選択可能
+- **段階1「静的埋め込み」の調査結果（設計判断）**：日本語の有力候補
+  [static-embedding-japanese](https://huggingface.co/hotchpotch/static-embedding-japanese)（MIT・JMTEB検索67.92でe5-small同等）には
+  ONNX版があるものの、リポジトリ構成・ファイル名が transformers.js の標準ローダー規約と合わず、
+  transformers.js 本体も Model2Vec／StaticEmbedding 構造に未対応（v4.2.0対応一覧に無し）。
+  ブラウザで確実に動く既製ルートがないため**将来課題**とし、本研究の段階構成は
+  **BM25 → Ruri v3-30m（最軽量NN）→ e5-small → EmbeddingGemma 2** の4段階で確定
+- EmbeddingGemma 2 の画像埋め込み（文字のない写真の見た目検索・PC向け）は、公式の利用例を確認してから次版で接続予定
 
 **v0.11** — サンプル刷新（実物調）・UI改善・バグ検証パス。
 
@@ -63,6 +84,7 @@
 | ファイル | 役割 |
 | --- | --- |
 | `index.html` | アプリ本体（取込→OCR→保存→4方式検索→ベンチ→書き出し） |
+| `eval/` | 公開データセット由来の評価セットJSON＋再生成スクリプト（④で選択） |
 | `sw.js` | Service Worker（オフライン用キャッシュ） |
 | `manifest.webmanifest` / `icon-*.png` | ホーム画面インストール用 |
 | `.github/workflows/pages.yml` | GitHub Pages への自動デプロイ設定 |
