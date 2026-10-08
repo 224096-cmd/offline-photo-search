@@ -4,115 +4,282 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.1</title>
+<title>オフライン画像・文書 意味検索 v0.2</title>
 <style>
-:root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--muted:#6b6b66}
+:root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
 *{box-sizing:border-box}
 body{margin:0;padding:16px;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
 main{max-width:640px;margin:0 auto}
 h1{font-size:1.3rem;margin:.25rem 0 0}
+h2{font-size:1.05rem;margin:1.5rem 0 .5rem}
 .sub{color:var(--muted);font-size:.85rem;margin:0 0 1rem}
-.banner{background:var(--ok);color:#fff;border-radius:10px;padding:10px 14px;font-weight:700;margin:0 0 1rem}
-ul{list-style:none;margin:0;padding:0}
-li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:0 0 10px}
+.status{border-radius:10px;padding:10px 14px;font-weight:700;margin:0 0 10px;background:var(--card);border:1px solid var(--line)}
+.status.ok{background:var(--ok);color:#fff;border-color:var(--ok)}
+.status.ng{background:var(--ng);color:#fff;border-color:var(--ng)}
+button{appearance:none;border:0;border-radius:10px;padding:13px 16px;font-size:1rem;font-weight:700;background:var(--accent);color:#fff;width:100%;margin:.25rem 0 .5rem;cursor:pointer}
+button:disabled{opacity:.45}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+label.chk{display:flex;gap:8px;align-items:center;font-size:.9rem;margin:.25rem 0 .5rem}
+input[type=text],textarea{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+textarea{min-height:3.2em;resize:vertical}
+.lbl{display:block;color:var(--muted);font-size:.8rem;margin:.6rem 0 .2rem}
+pre{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.75rem;overflow:auto;white-space:pre-wrap;word-break:break-all;max-height:14em}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:.8rem}
+.score{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.top .score{color:var(--ok)}
+.meta{color:var(--muted);font-size:.8rem}
+details{margin-top:1.5rem}
+summary{cursor:pointer;font-weight:700}
+ul.diag{list-style:none;margin:.5rem 0 0;padding:0}
+ul.diag li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 8px}
 .k{display:block;color:var(--muted);font-size:.8rem}
 .v{font-weight:600;word-break:break-all}
-.ok{color:var(--ok)}
-.ng{color:var(--ng)}
-button{appearance:none;border:0;border-radius:10px;padding:13px 16px;font-size:1rem;font-weight:700;background:var(--ok);color:#fff;width:100%;margin:.25rem 0 .75rem;cursor:pointer}
-button.copy{background:transparent;border:1px solid var(--line);color:var(--fg)}
+.v.okc{color:var(--ok)}.v.ngc{color:var(--ng)}
 footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 </style>
 </head>
 <body>
 <main>
-<p class="banner">✅ GitHub Pages の表示に成功しています</p>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.1 環境チェック（卒業研究・開発版）</p>
-<button id="run" type="button">この端末の対応状況を判定する</button>
-<ul id="list"></ul>
-<button id="copy" class="copy" type="button" hidden>判定結果をコピー（チャット貼り付け用）</button>
-<footer>このページは通信を行いません（AIモデルは未搭載です）<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
+<p class="sub">v0.2 — EmbeddingGemma 2 テキスト埋め込みデモ（実機検証用）</p>
+
+<div id="status" class="status">まだモデルを読み込んでいません。Wi-Fi接続で「① モデルを読み込む」を押してください。</div>
+
+<h2>① モデルを読み込む</h2>
+<div class="card">
+  <label class="chk"><input type="checkbox" id="forceWasm"> WASMを強制する（WebGPUと比較測定したいとき用。通常はオフ）</label>
+  <button id="loadBtn" type="button">① モデルを読み込む（初回は約180〜210MBをダウンロード）</button>
+  <p class="meta">モデル: onnx-community/embeddinggemma-2-ONNX（テキスト・q4量子化）／ 2回目以降はブラウザ内キャッシュから読み込むため通信しません。</p>
+  <pre id="prog" hidden></pre>
+</div>
+
+<h2>② 類似度を計算する</h2>
+<div class="card">
+  <span class="lbl">検索したい文（クエリ）</span>
+  <input type="text" id="q" value="遠足の持ち物を知りたい">
+  <span class="lbl">文書1</span>
+  <textarea class="doc">保護者の皆様へ：明日の遠足には水筒・雨具・お弁当を持たせてください。</textarea>
+  <span class="lbl">文書2</span>
+  <textarea class="doc">二次関数 y=ax^2 のグラフの頂点と軸の求め方について説明する。</textarea>
+  <span class="lbl">文書3</span>
+  <textarea class="doc">放課後に校庭の桜を撮影した。花がとてもきれいだった。</textarea>
+  <button id="encBtn" type="button" disabled>② ベクトル化して類似度を計算</button>
+  <div id="result"></div>
+</div>
+
+<h2>③ 計測結果を書き出す</h2>
+<div class="card">
+  <button id="copyJson" class="ghost" type="button" disabled>結果をコピー（JSON・チャット貼り付け用）</button>
+  <button id="dlCsv" class="ghost" type="button" disabled>CSVをダウンロード（卒論の表づくり用）</button>
+  <p class="meta">iPhoneではCSVのダウンロード後に共有画面が出るので「"ファイル"に保存」を選んでください。</p>
+</div>
+
+<details>
+  <summary>（参考）v0.1 の環境チェック</summary>
+  <button id="diagRun" class="ghost" type="button">この端末の対応状況を判定する</button>
+  <ul class="diag" id="diagList"></ul>
+  <button id="diagCopy" class="ghost" type="button" hidden>判定結果をコピー</button>
+</details>
+
+<footer>個人データは端末の外へ送信しません（この版はライブラリとモデルの取得時のみ通信します。完全オフライン化は後の版で対応）<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
 </main>
-<script>
-"use strict";
-var items = [];
-var list = document.getElementById("list");
 
-function row(key, value, ok) {
-  items.push({ key: key, value: String(value), ok: (ok === undefined ? null : ok) });
-  var li = document.createElement("li");
-  var k = document.createElement("span");
-  k.className = "k";
-  k.textContent = key;
-  var v = document.createElement("span");
-  v.className = "v" + (ok === true ? " ok" : ok === false ? " ng" : "");
-  v.textContent = String(value);
-  li.appendChild(k);
-  li.appendChild(v);
-  list.appendChild(li);
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const state = {
+  extractor: null,
+  device: null,
+  dtype: "q4",
+  dim: null,
+  loadMs: null,
+  queryMs: null,
+  docsMs: null,
+  docCount: 0,
+  ranking: [],
+  error: null
+};
+
+function setStatus(msg, kind) {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = "status" + (kind ? " " + kind : "");
 }
 
-async function run() {
-  list.innerHTML = "";
-  items.length = 0;
+// ---- ① モデル読み込み ----
+const progress = {};
+function renderProgress() {
+  const lines = Object.values(progress).map((p) => {
+    const pct = p.progress != null ? Math.round(p.progress) : 0;
+    const mb = p.total ? "（" + Math.round((p.loaded || 0) / 1048576) + " / " + Math.round(p.total / 1048576) + " MB）" : "";
+    return (pct >= 100 ? "✓ " : "… ") + p.file + "  " + pct + "%" + mb;
+  });
+  const pre = $("prog");
+  pre.hidden = false;
+  pre.textContent = lines.join("\n");
+}
 
-  row("判定日時", new Date().toLocaleString("ja-JP"));
-  row("ブラウザ (UserAgent)", navigator.userAgent);
-
-  // WebGPU（ブラウザからGPUを使う新API。埋め込みモデルの高速実行に使用）
+async function loadModel() {
+  const force = $("forceWasm").checked;
+  const device = (!force && "gpu" in navigator) ? "webgpu" : "wasm";
+  state.device = device;
+  $("loadBtn").disabled = true;
+  $("forceWasm").disabled = true;
+  setStatus("モデル読み込み中（" + device + " / q4）… 初回は数分かかることがあります。画面を閉じずにお待ちください。");
+  const t0 = performance.now();
   try {
-    if (!("gpu" in navigator)) {
-      row("WebGPU", "非対応（WASMで動作予定）", false);
-    } else {
-      var adapter = await navigator.gpu.requestAdapter();
-      if (adapter) {
-        var info = "";
-        try {
-          if (adapter.info) {
-            info = " / " + [adapter.info.vendor, adapter.info.architecture].filter(Boolean).join(" ");
-          }
-        } catch (e) { /* info非対応環境 */ }
-        row("WebGPU", "対応" + info, true);
-      } else {
-        row("WebGPU", "アダプタ取得失敗（WASMで動作予定）", false);
+    const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1");
+    state.extractor = await pipeline("feature-extraction", "onnx-community/embeddinggemma-2-ONNX", {
+      device: device,
+      dtype: "q4",
+      progress_callback: (p) => {
+        if (!p || !p.file) return;
+        if (p.status === "progress") { progress[p.file] = p; renderProgress(); }
+        if (p.status === "done") { progress[p.file] = { file: p.file, progress: 100 }; renderProgress(); }
       }
-    }
+    });
+    state.loadMs = Math.round(performance.now() - t0);
+    setStatus("✅ モデル読み込み完了：" + (state.loadMs / 1000).toFixed(1) + " 秒（実行方式: " + device + "）。②に進んでください。", "ok");
+    $("encBtn").disabled = false;
   } catch (e) {
-    row("WebGPU", "エラー: " + e.message, false);
+    state.error = String(e && e.message ? e.message : e);
+    setStatus("❌ 読み込みに失敗：" + state.error + " ／ 対処：ページを再読み込みし、「WASMを強制」にチェックして再試行。それでも駄目ならこのエラー文をチャットに貼ってください。", "ng");
+    $("loadBtn").disabled = false;
+    $("forceWasm").disabled = false;
   }
+}
+$("loadBtn").addEventListener("click", loadModel);
 
-  row("WebAssembly (WASM)", typeof WebAssembly === "object" ? "対応" : "非対応", typeof WebAssembly === "object");
-  row("Service Worker", "serviceWorker" in navigator ? "対応（オフライン化に使用予定）" : "非対応", "serviceWorker" in navigator);
-  row("クロスオリジン分離", (typeof crossOriginIsolated !== "undefined" && crossOriginIsolated) ? "有効" : "無効（マルチスレッドWASMは不可。必要なら後でService Workerで対応）");
+// ---- ② 類似度計算 ----
+function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
 
+async function runSimilarity() {
+  const q = $("q").value.trim();
+  const docs = Array.from(document.querySelectorAll(".doc")).map((t) => t.value.trim()).filter(Boolean);
+  if (!q || docs.length === 0) { alert("クエリと文書を入力してください"); return; }
+  $("encBtn").disabled = true;
+  setStatus("ベクトル化して類似度を計算中…");
   try {
-    var est = await navigator.storage.estimate();
-    row("ストレージ割当の目安", Math.round((est.quota || 0) / 1048576) + " MB（使用中 " + Math.round((est.usage || 0) / 1048576) + " MB）", true);
+    // EmbeddingGemma 2 は用途を示す接頭辞（プレフィックス）を付けて入力する
+    const t1 = performance.now();
+    const qv = (await state.extractor(["task: search result | query: " + q])).tolist()[0];
+    const t2 = performance.now();
+    const dv = (await state.extractor(docs.map((d) => "title: none | text: " + d))).tolist();
+    const t3 = performance.now();
+
+    state.dim = qv.length;
+    state.queryMs = Math.round(t2 - t1);
+    state.docsMs = Math.round(t3 - t2);
+    state.docCount = docs.length;
+    state.ranking = dv
+      .map((v, i) => ({ text: docs[i], score: dot(qv, v) }))
+      .sort((a, b) => b.score - a.score)
+      .map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text }));
+
+    const rows = state.ranking.map((r, i) =>
+      '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(4) + "</td><td>" + escapeHtml(r.text) + "</td></tr>"
+    ).join("");
+    $("result").innerHTML =
+      '<p class="meta">ベクトル次元: ' + state.dim + " ／ クエリ処理 " + state.queryMs + " ms ／ 文書" + state.docCount + "件 " + state.docsMs + " ms（1件あたり約" + Math.round(state.docsMs / state.docCount) + " ms）</p>" +
+      '<table><tr><th>類似度（コサイン）</th><th>文書</th></tr>' + rows + "</table>";
+    setStatus("✅ 計算完了。1位がクエリの意味に最も近い文書です。③で結果を書き出せます。", "ok");
+    $("copyJson").disabled = false;
+    $("dlCsv").disabled = false;
   } catch (e) {
-    row("ストレージ割当の目安", "取得できませんでした");
+    state.error = String(e && e.message ? e.message : e);
+    setStatus("❌ 計算に失敗：" + state.error + "（このエラー文をチャットに貼ってください）", "ng");
+  } finally {
+    $("encBtn").disabled = false;
   }
+}
+$("encBtn").addEventListener("click", runSimilarity);
 
-  row("画面", screen.width + "×" + screen.height + " @" + window.devicePixelRatio + "x");
-  if (navigator.deviceMemory) {
-    row("搭載メモリ（概算）", navigator.deviceMemory + " GB 以上");
-  }
-  row("表示モード", window.matchMedia("(display-mode: standalone)").matches ? "ホーム画面から起動（PWA）" : "ブラウザ内で表示");
-
-  document.getElementById("copy").hidden = false;
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-document.getElementById("run").addEventListener("click", run);
+// ---- ③ 書き出し ----
+function buildReport() {
+  return {
+    app: "offline-photo-search v0.2",
+    checkedAt: new Date().toISOString(),
+    model: "onnx-community/embeddinggemma-2-ONNX",
+    dtype: state.dtype,
+    device: state.device,
+    dim: state.dim,
+    modelLoadMs: state.loadMs,
+    queryEncodeMs: state.queryMs,
+    docsEncodeMs: state.docsMs,
+    docCount: state.docCount,
+    userAgent: navigator.userAgent,
+    ranking: state.ranking,
+    error: state.error
+  };
+}
 
-document.getElementById("copy").addEventListener("click", async function () {
-  var text = JSON.stringify({ app: "offline-photo-search v0.1", checkedAt: new Date().toISOString(), results: items }, null, 2);
+$("copyJson").addEventListener("click", async () => {
+  const text = JSON.stringify(buildReport(), null, 2);
+  try { await navigator.clipboard.writeText(text); alert("コピーしました。チャットに貼り付けてください。"); }
+  catch (e) { window.prompt("以下を全選択してコピーしてください", text); }
+});
+
+$("dlCsv").addEventListener("click", () => {
+  const r = buildReport();
+  const head = [
+    ["項目", "値"],
+    ["計測日時", r.checkedAt],
+    ["モデル", r.model],
+    ["量子化", r.dtype],
+    ["実行方式", r.device],
+    ["ベクトル次元", r.dim],
+    ["モデル読み込み時間(ms)", r.modelLoadMs],
+    ["クエリ処理時間(ms)", r.queryEncodeMs],
+    ["文書処理時間合計(ms)", r.docsEncodeMs],
+    ["文書件数", r.docCount],
+    ["UserAgent", r.userAgent]
+  ];
+  const rank = [[], ["順位", "類似度", "文書"]].concat(r.ranking.map((x) => [x.rank, x.score, x.text]));
+  const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+  const csv = "﻿" + head.concat(rank).map((row) => row.map(esc).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "embedding-check-v02.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// ---- （参考）v0.1 環境チェック ----
+const diagItems = [];
+function diagRow(key, value, ok) {
+  diagItems.push({ key: key, value: String(value), ok: ok === undefined ? null : ok });
+  const li = document.createElement("li");
+  li.innerHTML = '<span class="k">' + key + '</span><span class="v ' + (ok === true ? "okc" : ok === false ? "ngc" : "") + '">' + escapeHtml(String(value)) + "</span>";
+  $("diagList").appendChild(li);
+}
+async function diagRun() {
+  $("diagList").innerHTML = ""; diagItems.length = 0;
+  diagRow("判定日時", new Date().toLocaleString("ja-JP"));
+  diagRow("ブラウザ (UserAgent)", navigator.userAgent);
   try {
-    await navigator.clipboard.writeText(text);
-    alert("コピーしました。チャットに貼り付けてください。");
-  } catch (e) {
-    window.prompt("以下を全選択してコピーしてください", text);
-  }
+    if (!("gpu" in navigator)) diagRow("WebGPU", "非対応", false);
+    else { const a = await navigator.gpu.requestAdapter(); diagRow("WebGPU", a ? "対応" : "アダプタ取得失敗", !!a); }
+  } catch (e) { diagRow("WebGPU", "エラー: " + e.message, false); }
+  diagRow("WebAssembly (WASM)", typeof WebAssembly === "object" ? "対応" : "非対応", typeof WebAssembly === "object");
+  diagRow("Service Worker", "serviceWorker" in navigator ? "対応" : "非対応", "serviceWorker" in navigator);
+  diagRow("クロスオリジン分離", (typeof crossOriginIsolated !== "undefined" && crossOriginIsolated) ? "有効" : "無効");
+  try { const est = await navigator.storage.estimate(); diagRow("ストレージ割当の目安", Math.round((est.quota || 0) / 1048576) + " MB（使用中 " + Math.round((est.usage || 0) / 1048576) + " MB）", true); }
+  catch (e) { diagRow("ストレージ割当の目安", "取得不可"); }
+  diagRow("表示モード", window.matchMedia("(display-mode: standalone)").matches ? "ホーム画面から起動（PWA）" : "ブラウザ内で表示");
+  $("diagCopy").hidden = false;
+}
+$("diagRun").addEventListener("click", diagRun);
+$("diagCopy").addEventListener("click", async () => {
+  const text = JSON.stringify({ app: "offline-photo-search v0.2 diag", results: diagItems }, null, 2);
+  try { await navigator.clipboard.writeText(text); alert("コピーしました。"); }
+  catch (e) { window.prompt("以下をコピーしてください", text); }
 });
 </script>
 </body>
