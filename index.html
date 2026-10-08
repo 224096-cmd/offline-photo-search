@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.6</title>
+<title>オフライン画像・文書 意味検索 v0.7</title>
 <style>
 :root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
 @media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
@@ -35,9 +35,12 @@ th{color:var(--muted);font-weight:600;font-size:.8rem}
 .score{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
 .top .score{color:var(--ok)}
 .meta{color:var(--muted);font-size:.8rem}
+.rthumb{width:42px;height:42px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px}
 ul.docs{list-style:none;margin:.5rem 0 0;padding:0}
 ul.docs li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:0 0 6px;display:flex;gap:8px;align-items:center;font-size:.85rem}
-ul.docs li span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ul.docs li img{width:32px;height:32px;object-fit:cover;border-radius:6px}
+ul.docs li .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{font-size:.65rem;border:1px solid var(--line);border-radius:6px;padding:1px 5px;color:var(--muted);white-space:nowrap}
 details{margin-top:1.5rem}
 summary{cursor:pointer;font-weight:700}
 ul.diag{list-style:none;margin:.5rem 0 0;padding:0}
@@ -50,16 +53,29 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">v0.6 — 検索MVP（登録 → 保存 → BM25／意味検索）</p>
+<p class="sub">v0.7 — 写真取り込み＋OCR（撮ったプリントを言葉で呼び出す）</p>
 
 <div id="crash" class="status warn" hidden></div>
-<div id="status" class="status">まず「サンプル8件を投入」→ 方式「BM25」で検索を試してください（モデル不要・即動きます）。</div>
+<div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
 
-<h2>① 文書を登録する（端末内データベース）</h2>
+<h2>① 取り込む</h2>
 <div class="card">
-  <span class="lbl">本文（お便り・ノート・メモなど。将来はOCRがここに文字を入れます）</span>
+  <span class="lbl">写真から（文字を自動で読み取り：OCR）</span>
+  <div class="row2">
+    <button id="pickBtn" type="button">写真を選ぶ（複数可）</button>
+    <button id="camBtn" class="ghost" type="button">カメラで撮る</button>
+  </div>
+  <input type="file" id="fileImgs" accept="image/*" multiple hidden>
+  <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+  <span class="lbl">OCRエンジン</span>
+  <select id="selOcr">
+    <option value="tesseract" selected>Tesseract.js（軽量・本版で対応）</option>
+    <option value="paddle" disabled>PaddleOCR.js（主力・次版で接続）</option>
+  </select>
+  <p class="meta">初回は日本語の認識データ（数MB〜十数MB）をダウンロードします。1枚あたり数秒〜20秒。読み取れた文字が4文字未満の写真は「文字なし」と判定し、検索対象から外して保管します（適応分岐の簡易版）。</p>
+  <span class="lbl">テキストを直接追加（メモなど）</span>
   <textarea id="newDoc" placeholder="例：保護者の皆様へ：明日の遠足には…"></textarea>
-  <button id="addBtn" type="button">この文書を追加</button>
+  <button id="addBtn" class="ghost" type="button">このテキストを追加</button>
   <div class="row2">
     <button id="sampleBtn" class="ghost" type="button">サンプル8件を投入</button>
     <button id="clearBtn" class="ghost" type="button">全削除</button>
@@ -74,7 +90,7 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
   <select id="selMethod">
     <option value="bm25" selected>段階0：BM25キーワード検索（モデル不要）</option>
     <option value="e5s">段階2：意味検索 multilingual-e5-small（スマホ標準）</option>
-    <option value="ruri30">段階2候補：意味検索 Ruri v3-30m（日本語特化・検証中）</option>
+    <option value="ruri30">段階2候補：意味検索 Ruri v3-30m（日本語特化）</option>
     <option value="eg2">段階3：意味検索 EmbeddingGemma 2（PC向け）</option>
   </select>
   <span class="lbl">実行方式（意味検索のみ）</span>
@@ -102,16 +118,16 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 <div class="card">
   <button id="copyJson" class="ghost" type="button">結果をコピー（JSON・チャット貼り付け用）</button>
   <button id="dlCsv" class="ghost" type="button">CSVをダウンロード（卒論の表づくり用）</button>
-  <p class="meta">文書数・モデル・方式・処理時間・検索結果・中断記録を書き出します。</p>
+  <p class="meta">文書数・OCR計測・モデル・検索結果・中断記録を書き出します。</p>
 </div>
 
 <details>
-  <summary>（参考）v0.1 の環境チェック</summary>
+  <summary>（参考）環境チェック</summary>
   <button id="diagRun" class="ghost" type="button">この端末の対応状況を判定する</button>
   <ul class="diag" id="diagList"></ul>
 </details>
 
-<footer>登録した文書・ベクトルは端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
+<footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
 </main>
 
 <script type="module">
@@ -126,15 +142,15 @@ function setStatus(msg, kind) { const el = $("status"); el.textContent = msg; el
 // ===== モデル定義 =====
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const MODELS = {
-  e5s:    { id: "Xenova/multilingual-e5-small",        short: "e5-small",        qp: "query: ",                      dp: "passage: ",               dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q8" },
-  ruri30: { id: "sirasagi62/ruri-v3-30m-ONNX",         short: "Ruri v3-30m",     qp: "検索クエリ: ",                  dp: "検索文書: ",               dtypeFor: (d) => d === "webgpu" ? "fp16" : "q8" },
-  eg2:    { id: "onnx-community/embeddinggemma-2-ONNX", short: "EmbeddingGemma 2", qp: "task: search result | query: ", dp: "title: none | text: ",    dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q4" }
+  e5s:    { id: "Xenova/multilingual-e5-small",         short: "e5-small",         qp: "query: ",                       dp: "passage: ",            dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q8" },
+  ruri30: { id: "sirasagi62/ruri-v3-30m-ONNX",          short: "Ruri v3-30m",      qp: "検索クエリ: ",                   dp: "検索文書: ",            dtypeFor: (d) => d === "webgpu" ? "fp16" : "q8" },
+  eg2:    { id: "onnx-community/embeddinggemma-2-ONNX", short: "EmbeddingGemma 2", qp: "task: search result | query: ", dp: "title: none | text: ", dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q4" }
 };
 const NOTES = {
-  bm25: "単語（文字2つ組）の一致で探す古典手法。モデル不要で全端末で即動きます。言い換えには弱い＝意味検索との比較基準。",
-  e5s: "iPhone実測で安定（WASM・118MB・1文24〜44ms）。多言語対応。",
-  ruri30: "日本語特化の超小型モデル（約1/4規模・検証中）。接頭辞は暫定設定。初回に数十MBをダウンロード。",
-  eg2: "高性能だがiPhoneでは不安定（PC・対応端末向け。測定用に残しています）。"
+  bm25: "単語（文字2つ組）の一致で探す古典手法。モデル不要で即動作。言い換えに弱い＝意味検索との比較基準。",
+  e5s: "iPhone実測で安定（WASM・118MB）。多言語対応。",
+  ruri30: "日本語特化の超小型モデル（約30MB級）。iPhone実測で最速・安定。",
+  eg2: "高性能だがiPhoneでは不安定（PC・対応端末向け）。"
 };
 
 // ===== 状態 =====
@@ -143,6 +159,7 @@ const state = {
   loadMs: null, warmupMs: null, embedMs: [], lastSearch: null,
   error: null, lastInterrupted: null
 };
+const OCR = { worker: null, loadMs: null, items: [] };
 
 // ===== 中断検知 =====
 const PHASE_KEY = "ops-phase";
@@ -156,7 +173,7 @@ function clearPhase() { try { localStorage.removeItem(PHASE_KEY); } catch (e) {}
     localStorage.removeItem(PHASE_KEY);
     const el = $("crash");
     el.hidden = false;
-    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされました。ベクトル化は1件ごとに保存済みなので、続きから再開できます。この文言はチャットに貼ってください。";
+    el.textContent = "⚠ 前回は「" + state.lastInterrupted.phase + "」の途中でページが再読み込みされました。保存済みのデータは残っています。この文言はチャットに貼ってください。";
   } catch (e) {}
 })();
 
@@ -174,6 +191,14 @@ async function dbAll() {
   return new Promise((res, rej) => {
     const t = db.transaction("docs", "readonly").objectStore("docs").getAll();
     t.onsuccess = () => res(t.result || []);
+    t.onerror = () => rej(t.error);
+  });
+}
+async function dbGet(id) {
+  const db = await openDb();
+  return new Promise((res, rej) => {
+    const t = db.transaction("docs", "readonly").objectStore("docs").get(id);
+    t.onsuccess = () => res(t.result || null);
     t.onerror = () => rej(t.error);
   });
 }
@@ -204,6 +229,14 @@ async function dbClear() {
     t.onerror = () => rej(t.error);
   });
 }
+// ベクトルを安全に保存：書き込み直前にDBから読み直して合成（上書き消失の防止）
+async function saveVec(doc, key, vec) {
+  const fresh = (await dbGet(doc.id)) || doc;
+  fresh.vecs = Object.assign({}, fresh.vecs || {}, {});
+  fresh.vecs[key] = vec;
+  await dbPut(fresh);
+  doc.vecs = fresh.vecs;
+}
 
 // ===== 文書の登録・一覧 =====
 const SAMPLES = [
@@ -217,64 +250,171 @@ const SAMPLES = [
   "歴史の暗記メモ：鎌倉幕府の成立は1192年ではなく1185年とする説が有力。"
 ];
 function newId() { return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
+function searchableDocs() { return state.docs.filter((d) => d.text && d.text.trim()); }
 
 function renderDocs() {
   const counts = { e5s: 0, ruri30: 0, eg2: 0 };
-  for (const d of state.docs) for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
-  $("dbMeta").textContent = "登録 " + state.docs.length + " 件 ／ ベクトル化済み：e5-small " + counts.e5s + "・Ruri " + counts.ruri30 + "・EG2 " + counts.eg2;
+  let noText = 0;
+  for (const d of state.docs) {
+    if (!(d.text && d.text.trim())) noText++;
+    for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
+  }
+  $("dbMeta").textContent = "登録 " + state.docs.length + " 件（うち文字なし画像 " + noText + " 件）／ ベクトル化済み：e5 " + counts.e5s + "・Ruri " + counts.ruri30 + "・EG2 " + counts.eg2;
   const list = $("docList");
   list.innerHTML = "";
-  const latest = state.docs.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5);
+  const latest = state.docs.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 6);
   for (const d of latest) {
     const li = document.createElement("li");
+    if (d.thumb) { const im = document.createElement("img"); im.src = d.thumb; li.appendChild(im); }
     const span = document.createElement("span");
-    span.textContent = d.text;
+    span.className = "txt";
+    span.textContent = (d.text && d.text.trim()) ? d.text : "（文字なし画像：将来の画像検索の対象）";
+    li.appendChild(span);
+    for (const k of ["e5s", "ruri30", "eg2"]) {
+      if (d.vecs && d.vecs[k]) { const c = document.createElement("span"); c.className = "chip"; c.textContent = MODELS[k].short.split(" ")[0]; li.appendChild(c); }
+    }
     const btn = document.createElement("button");
     btn.className = "mini";
     btn.type = "button";
     btn.textContent = "削除";
     btn.addEventListener("click", async () => { await dbDel(d.id); state.docs = state.docs.filter((x) => x.id !== d.id); renderDocs(); updateVecMeta(); });
-    li.appendChild(span);
     li.appendChild(btn);
     list.appendChild(li);
   }
   updateVecMeta();
 }
 
-async function addDoc(text) {
-  const doc = { id: newId(), text: text, createdAt: new Date().toISOString(), vecs: {} };
+async function addTextDoc(text) {
+  const doc = { id: newId(), type: "text", text: text, createdAt: new Date().toISOString(), vecs: {} };
+  await dbPut(doc);
+  state.docs.push(doc);
   if (state.extractor && state.loadedKey) {
     try {
       setPhase("登録時ベクトル化（" + MODELS[state.loadedKey].short + "）");
       const out = await state.extractor([MODELS[state.loadedKey].dp + text], ENC_OPTS);
-      doc.vecs[state.loadedKey] = toVec(out);
+      const v = toVec(out);
       free(out);
+      await saveVec(doc, state.loadedKey, v);
       clearPhase();
     } catch (e) { clearPhase(); }
   }
-  await dbPut(doc);
-  state.docs.push(doc);
   renderDocs();
 }
 
 $("addBtn").addEventListener("click", async () => {
   const t = $("newDoc").value.trim();
   if (!t) { alert("本文を入力してください"); return; }
-  await addDoc(t);
+  await addTextDoc(t);
   $("newDoc").value = "";
   setStatus("✅ 追加しました（計 " + state.docs.length + " 件）", "ok");
 });
 $("sampleBtn").addEventListener("click", async () => {
-  for (const s of SAMPLES) await addDoc(s);
-  setStatus("✅ サンプル8件を投入しました。まずBM25で「遠足 持ち物」などを検索してみてください。", "ok");
+  for (const s of SAMPLES) await addTextDoc(s);
+  setStatus("✅ サンプル8件を投入しました。", "ok");
 });
 $("clearBtn").addEventListener("click", async () => {
-  if (!confirm("登録した文書をすべて削除します。よろしいですか？")) return;
+  if (!confirm("登録した文書・写真をすべて削除します。よろしいですか？")) return;
   await dbClear();
   state.docs = [];
   renderDocs();
   setStatus("全削除しました。");
 });
+
+// ===== 写真の取り込み（OCR：Tesseract.js） =====
+async function getTessWorker() {
+  if (OCR.worker) return OCR.worker;
+  setPhase("OCRエンジン読み込み（Tesseract.js・日本語）");
+  setStatus("OCRエンジンを読み込み中（初回は日本語データを数MB〜十数MBダウンロード）…");
+  const t0 = performance.now();
+  const { createWorker } = await import("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.js");
+  OCR.worker = await createWorker("jpn", 1, {
+    logger: (m) => { if (m && m.status === "recognizing text") setStatus("文字を認識中… " + Math.round((m.progress || 0) * 100) + "%"); }
+  });
+  OCR.loadMs = Math.round(performance.now() - t0);
+  clearPhase();
+  return OCR.worker;
+}
+
+async function fileToCanvases(file) {
+  let bmp = null, isImgEl = false;
+  try { bmp = await createImageBitmap(file); }
+  catch (e) {
+    bmp = await new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = () => rej(new Error("画像を読み込めません（形式非対応の可能性）"));
+      img.src = URL.createObjectURL(file);
+    });
+    isImgEl = true;
+  }
+  const w = bmp.width || bmp.naturalWidth, h = bmp.height || bmp.naturalHeight;
+  const sc = Math.min(1, 1600 / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * sc)), ch = Math.max(1, Math.round(h * sc));
+  const c = document.createElement("canvas");
+  c.width = cw; c.height = ch;
+  c.getContext("2d").drawImage(bmp, 0, 0, cw, ch);
+  const ts = Math.min(1, 96 / Math.max(cw, ch));
+  const t = document.createElement("canvas");
+  t.width = Math.max(1, Math.round(cw * ts)); t.height = Math.max(1, Math.round(ch * ts));
+  t.getContext("2d").drawImage(c, 0, 0, t.width, t.height);
+  if (!isImgEl && bmp.close) { try { bmp.close(); } catch (e) {} }
+  return { canvas: c, thumb: t.toDataURL("image/jpeg", 0.7) };
+}
+
+async function importImages(files) {
+  files = Array.from(files || []);
+  if (!files.length) return;
+  let w;
+  try { w = await getTessWorker(); }
+  catch (e) {
+    clearPhase();
+    setStatus("❌ OCRエンジンの読み込みに失敗：" + (e && e.message ? e.message : e) + "（この文面を貼ってください）", "ng");
+    return;
+  }
+  let ok = 0, noText = 0, fail = 0;
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    try {
+      setPhase("OCR " + (i + 1) + "/" + files.length + "（Tesseract.js）");
+      setStatus("写真を処理中 " + (i + 1) + "/" + files.length + "（" + (f.name || "カメラ撮影") + "）… 1枚あたり数秒〜20秒。画面を切り替えないでください。");
+      const { canvas, thumb } = await fileToCanvases(f);
+      const t0 = performance.now();
+      const r = await w.recognize(canvas);
+      const ms = Math.round(performance.now() - t0);
+      const raw = (r && r.data && r.data.text) ? r.data.text : "";
+      const text = raw.replace(/\s+/g, " ").trim();
+      const clean = text.replace(/[\s　]/g, "");
+      const conf = (r && r.data && typeof r.data.confidence === "number") ? Math.round(r.data.confidence) : null;
+      const judged = clean.length >= 4; // 文字有無の簡易判定（適応分岐）
+      OCR.items.push({ name: f.name || "camera", ms: ms, chars: clean.length, conf: conf, judged: judged });
+      const doc = { id: newId(), type: "image", text: judged ? text : "", thumb: thumb, ocr: { engine: "tesseract", ms: ms, chars: clean.length, conf: conf, judged: judged }, createdAt: new Date().toISOString(), vecs: {} };
+      await dbPut(doc);
+      state.docs.push(doc);
+      if (judged && state.extractor && state.loadedKey) {
+        try {
+          setPhase("登録時ベクトル化（" + MODELS[state.loadedKey].short + "）");
+          const out = await state.extractor([MODELS[state.loadedKey].dp + doc.text], ENC_OPTS);
+          const v = toVec(out);
+          free(out);
+          await saveVec(doc, state.loadedKey, v);
+        } catch (e) {}
+        clearPhase();
+      }
+      renderDocs();
+      if (judged) ok++; else noText++;
+      await sleep(30);
+    } catch (e) {
+      fail++;
+    }
+  }
+  clearPhase();
+  setStatus("✅ 写真の取り込み完了：文字あり " + ok + " 件・文字なし " + noText + " 件" + (fail ? "・失敗 " + fail + " 件" : "") + "。意味検索する場合は②でベクトル化してください。", fail ? "warn" : "ok");
+}
+
+$("pickBtn").addEventListener("click", () => $("fileImgs").click());
+$("camBtn").addEventListener("click", () => $("fileCam").click());
+$("fileImgs").addEventListener("change", (e) => { importImages(e.target.files); e.target.value = ""; });
+$("fileCam").addEventListener("change", (e) => { importImages(e.target.files); e.target.value = ""; });
 
 // ===== ベクトル化（意味検索の準備） =====
 const ENC_OPTS = { pooling: "mean", normalize: true };
@@ -313,7 +453,7 @@ function resolveDevice() {
   if (isIOS) return "wasm";
   return ("gpu" in navigator) ? "webgpu" : "wasm";
 }
-function pendingDocs(key) { return state.docs.filter((d) => !(d.vecs && d.vecs[key])); }
+function pendingDocs(key) { return searchableDocs().filter((d) => !(d.vecs && d.vecs[key])); }
 
 function updateVecMeta() {
   const m = currentMethod();
@@ -325,7 +465,7 @@ function updateVecMeta() {
   const pend = pendingDocs(m).length;
   const ready = state.loadedKey === m && !!state.extractor;
   $("vecMeta").textContent = ready
-    ? (pend > 0 ? "このモデルで未ベクトル化：" + pend + " 件" : "全 " + state.docs.length + " 件ベクトル化済み。③で検索できます。")
+    ? (pend > 0 ? "このモデルで未ベクトル化：" + pend + " 件" : "検索対象 " + searchableDocs().length + " 件すべてベクトル化済み。③で検索できます。")
     : "先に「モデルを読み込む」を押してください。";
   $("vecBtn").hidden = !(ready && pend > 0);
 }
@@ -361,7 +501,6 @@ async function loadModel() {
     });
     state.loadedKey = key;
     state.loadMs = Math.round(performance.now() - t0);
-
     setPhase("ウォームアップ（" + m.short + "）");
     const tw = performance.now();
     const w = await state.extractor([m.qp + "ウォームアップ"], ENC_OPTS);
@@ -369,8 +508,7 @@ async function loadModel() {
     state.warmupMs = Math.round(performance.now() - tw);
     await sleep(300);
     clearPhase();
-
-    setStatus("✅ 準備完了：読み込み " + (state.loadMs / 1000).toFixed(1) + " 秒（" + m.short + " / " + device + " / " + dtype + "）。未処理があればベクトル化してください。", "ok");
+    setStatus("✅ 準備完了：読み込み " + (state.loadMs / 1000).toFixed(1) + " 秒（" + m.short + " / " + device + " / " + dtype + "）。", "ok");
   } catch (e) {
     clearPhase();
     state.error = String(e && e.message ? e.message : e);
@@ -401,9 +539,7 @@ async function vectorizeAll() {
       const v = toVec(out);
       free(out);
       state.embedMs.push(Math.round(performance.now() - t0));
-      pend[i].vecs = pend[i].vecs || {};
-      pend[i].vecs[key] = v;
-      await dbPut(pend[i]); // 1件ごとに保存（中断しても続きから）
+      await saveVec(pend[i], key, v); // 読み直し合成で保存（1件ごと）
       renderDocs();
       await sleep(40);
     }
@@ -430,13 +566,14 @@ function grams(s) {
   return a;
 }
 function bm25Search(query) {
+  const target = searchableDocs();
   const k1 = 1.2, b = 0.75;
-  const docG = state.docs.map((d) => grams(d.text));
+  const docG = target.map((d) => grams(d.text));
   const lens = docG.map((g) => g.length || 1);
   const avg = lens.reduce((a, x) => a + x, 0) / Math.max(1, lens.length);
   const qset = Array.from(new Set(grams(query)));
-  const N = state.docs.length;
-  const scores = state.docs.map((d, i) => {
+  const N = target.length;
+  return target.map((d, i) => {
     let score = 0;
     for (const g of qset) {
       let tf = 0;
@@ -447,9 +584,8 @@ function bm25Search(query) {
       const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
       score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (lens[i] / avg)));
     }
-    return { text: d.text, score: score };
-  });
-  return scores.sort((a, x) => x.score - a.score);
+    return { text: d.text, thumb: d.thumb, score: score };
+  }).sort((a, x) => x.score - a.score);
 }
 
 // ===== 検索 =====
@@ -457,8 +593,7 @@ async function runSearch() {
   const method = currentMethod();
   const q = $("q").value.trim();
   if (!q) { alert("検索したい内容を入力してください"); return; }
-  if (state.docs.length === 0) { setStatus("文書が0件です。先に①で登録（またはサンプル投入）してください。", "ng"); return; }
-
+  if (searchableDocs().length === 0) { setStatus("検索できる文書が0件です。①で写真かテキストを登録してください。", "ng"); return; }
   $("searchBtn").disabled = true;
   try {
     let results, took, extra = "";
@@ -483,21 +618,21 @@ async function runSearch() {
       const qv = toVec(out);
       free(out);
       const t1 = performance.now();
-      results = state.docs
-        .map((d) => ({ text: d.text, score: dot(qv, d.vecs[method]) }))
+      results = searchableDocs()
+        .map((d) => ({ text: d.text, thumb: d.thumb, score: dot(qv, d.vecs[method]) }))
         .sort((a, x) => x.score - a.score);
       took = Math.round(performance.now() - t0);
       extra = "（クエリ処理 " + Math.round(t1 - t0) + " ms・次元 " + qv.length + "）";
       clearPhase();
     }
-    const top = results.slice(0, 10).map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text }));
-    state.lastSearch = { query: q, method: method, tookMs: took, results: top };
+    const top = results.slice(0, 10).map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null }));
+    state.lastSearch = { query: q, method: method, tookMs: took, results: top.map((r) => ({ rank: r.rank, score: r.score, text: r.text.slice(0, 80) })) };
     const label = method === "bm25" ? "BM25" : MODELS[method].short;
     const rows = top.map((r, i) =>
-      '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(method === "bm25" ? 2 : 4) + "</td><td>" + escapeHtml(r.text) + "</td></tr>"
+      '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(method === "bm25" ? 2 : 4) + "</td><td>" + (r.thumb ? '<img class="rthumb" src="' + r.thumb + '">' : "") + escapeHtml(r.text) + "</td></tr>"
     ).join("");
     $("result").innerHTML =
-      '<p class="meta">方式: ' + label + " ／ 対象 " + state.docs.length + " 件 ／ 所要 " + took + " ms " + extra + "</p>" +
+      '<p class="meta">方式: ' + label + " ／ 対象 " + searchableDocs().length + " 件 ／ 所要 " + took + " ms " + extra + "</p>" +
       "<table><tr><th>スコア</th><th>文書</th></tr>" + rows + "</table>";
     setStatus("✅ 検索完了（" + label + "）。④で結果を書き出せます。", "ok");
   } catch (e) {
@@ -513,13 +648,22 @@ $("searchBtn").addEventListener("click", runSearch);
 // ===== 書き出し =====
 function buildReport() {
   const counts = { e5s: 0, ruri30: 0, eg2: 0 };
-  for (const d of state.docs) for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
+  let imageDocs = 0, noText = 0;
+  for (const d of state.docs) {
+    if (d.type === "image") imageDocs++;
+    if (!(d.text && d.text.trim())) noText++;
+    for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
+  }
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
+  const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.6",
+    app: "offline-photo-search v0.7",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
+    imageDocs: imageDocs,
+    noTextImages: noText,
     vectorized: counts,
+    ocr: { engine: "tesseract(jpn)", engineLoadMs: OCR.loadMs, avgMsPerImage: ocrAvg, items: OCR.items },
     loadedModel: state.loadedKey ? MODELS[state.loadedKey].id : null,
     device: state.device,
     dtype: state.dtype,
@@ -543,31 +687,32 @@ $("dlCsv").addEventListener("click", () => {
     ["項目", "値"],
     ["計測日時", r.checkedAt],
     ["文書数", r.docCount],
-    ["ベクトル化済み e5-small", r.vectorized.e5s],
-    ["ベクトル化済み Ruri v3-30m", r.vectorized.ruri30],
-    ["ベクトル化済み EmbeddingGemma 2", r.vectorized.eg2],
+    ["うち写真由来", r.imageDocs],
+    ["うち文字なし画像", r.noTextImages],
+    ["OCRエンジン", r.ocr.engine],
+    ["OCR読み込み(ms)", r.ocr.engineLoadMs],
+    ["OCR平均(ms/枚)", r.ocr.avgMsPerImage],
     ["読み込み中モデル", r.loadedModel || "なし"],
     ["実行方式", r.device || "—"],
     ["量子化", r.dtype || "—"],
-    ["モデル読み込み時間(ms)", r.modelLoadMs],
-    ["ベクトル化 平均(ms/件)", r.embedAvgMs],
     ["検索クエリ", r.lastSearch ? r.lastSearch.query : "—"],
     ["検索方式", r.lastSearch ? r.lastSearch.method : "—"],
     ["検索所要(ms)", r.lastSearch ? r.lastSearch.tookMs : "—"],
     ["前回の中断", r.lastInterrupted ? r.lastInterrupted.phase : "なし"],
     ["UserAgent", r.userAgent]
   ];
+  const t1 = [[], ["写真", "OCR時間(ms)", "認識文字数", "確信度", "文字あり判定"]].concat(r.ocr.items.map((x) => [x.name, x.ms, x.chars, x.conf == null ? "" : x.conf, x.judged ? "あり" : "なし"]));
   const t2 = [[], ["順位", "スコア", "文書"]].concat((r.lastSearch ? r.lastSearch.results : []).map((x) => [x.rank, x.score, x.text]));
   const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
-  const csv = "﻿" + head.concat(t2).map((row) => row.map(esc).join(",")).join("\r\n");
+  const csv = "﻿" + head.concat(t1, t2).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "search-mvp-v06.csv";
+  a.download = "ocr-search-v07.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
 
-// ===== v0.1 環境チェック =====
+// ===== 環境チェック =====
 async function diagRun() {
   const list = $("diagList");
   list.innerHTML = "";
@@ -588,9 +733,8 @@ $("diagRun").addEventListener("click", diagRun);
 
 // ===== 初期化 =====
 (async function init() {
-  try {
-    state.docs = await dbAll();
-  } catch (e) {
+  try { state.docs = await dbAll(); }
+  catch (e) {
     state.error = "IndexedDBを開けません: " + e;
     setStatus("❌ 端末内データベースを開けませんでした：" + e, "ng");
   }
