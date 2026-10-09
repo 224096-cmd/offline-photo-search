@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.13</title>
+<title>オフライン画像・文書 意味検索 v0.13.2</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
@@ -63,28 +63,29 @@ body.lab .labOnly{display:revert !important}
 .cmp{display:flex;gap:8px;align-items:center;margin:.3rem 0 .5rem}
 .cmp input{width:auto;margin:0;transform:scale(1.2)}
 .cmp label{font-size:.85rem;color:var(--muted)}
+.cmp input:disabled~label{opacity:.45}
 .cmpHead{font-weight:700;font-size:.85rem;margin:1rem 0 .2rem}
 </style>
 </head>
 <body>
 <main>
 <h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">写真にうつった文字をAIが読み取り、「ことばの意味」でさがせるアプリ。いちど準備すれば、インターネットがなくても動きます。<span class="labOnly">［v0.13 — 2モード構成（一般向け／詳細設定）・自動準備・くらべる機能］</span></p>
+<p class="sub">写真に写った文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.13.2 — 2モード構成（一般向け／詳細設定）・自動準備・比較表示・モデル選択（サイズ明記）］</span></p>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
 
 <details id="howto" style="margin:0 0 10px">
-  <summary>はじめての方へ（つかい方）</summary>
+  <summary>はじめての方へ（使い方）</summary>
   <p class="meta" style="margin:.4rem 0 0">
-    <b>1.</b> 「サンプル10件を入れる」を押すか、「カメラで撮る」でプリントやノートを撮影します（文字は自動で読み取ります）<br>
-    <b>2.</b> 検索欄に、さがしたいことをふだんのことばで入力します（例：「遠足に何を持っていく？」）<br>
-    <b>3.</b> 「さがす」を押します。初回だけAIの準備に時間がかかります（1〜2分。2回目からはすぐ）<br>
-    <b>ヒント：</b>「ことば一致」の結果ともくらべると、同じことばが入っていなくても見つけられる「意味でさがすAI」の特徴がわかります
+    <b>1.</b> 「サンプル10件を登録」を押すか、「カメラで撮る」でプリントやノートを撮影します（文字は自動で読み取られます）<br>
+    <b>2.</b> 検索欄に、調べたい内容を普段の言葉で入力します（例：「遠足に何を持っていく？」）<br>
+    <b>3.</b> 「検索」を押します。初回のみAIモデルのダウンロードに時間がかかります（1〜2分。2回目以降はすぐに動きます）<br>
+    <b>ヒント：</b>「キーワード一致の結果と比較する」にチェックを入れると、同じ単語が含まれていなくても見つけられる意味検索の特徴を確認できます
   </p>
 </details>
 
-<h2>1. 写真やメモを入れる</h2>
+<h2>1. 写真やメモを登録する</h2>
 <div class="card">
   <span class="lbl">写真から（文字は自動で読み取ります）</span>
   <div class="row2">
@@ -92,7 +93,7 @@ body.lab .labOnly{display:revert !important}
     <button id="camBtn" class="ghost" type="button">カメラで撮る（無音・ズーム可）</button>
   </div>
   <input type="file" id="fileImgs" accept="image/*" multiple hidden>
-  <p class="meta">文字の読み取りは1枚 数秒〜20秒。写真も文字も、この端末の中だけに保存されます（外には送られません）。</p>
+  <p class="meta">文字の読み取りには1枚あたり数秒〜20秒かかります。写真と文字はこの端末内にのみ保存され、外部には送信されません。</p>
   <span class="lbl labOnly">OCRエンジン（文字読み取りの方式）</span>
   <select id="selOcr" class="labOnly">
     <option value="tesseract" selected>Tesseract.js（軽量・オフライン可）</option>
@@ -103,7 +104,7 @@ body.lab .labOnly{display:revert !important}
   <textarea id="newDoc" placeholder="例：保護者の皆様へ：明日の遠足には…"></textarea>
   <button id="addBtn" class="ghost" type="button">このテキストを追加</button>
   <div class="row2">
-    <button id="sampleBtn" class="ghost" type="button">サンプル10件を入れる（学校のプリント風）</button>
+    <button id="sampleBtn" class="ghost" type="button">サンプル10件を登録（学校のプリント風）</button>
     <button id="clearBtn" class="ghost" type="button">全削除</button>
   </div>
   <p class="meta" id="dbMeta">読み込み中…</p>
@@ -115,10 +116,10 @@ body.lab .labOnly{display:revert !important}
 <div class="card">
   <span class="lbl">検索方式</span>
   <select id="selMethod">
-    <option value="bm25">段階0：BM25 ことば一致（モデル不要）</option>
-    <option value="ruri30" selected>段階1：意味検索 Ruri v3-30m（最軽量・既定）</option>
-    <option value="e5s">段階2：意味検索 multilingual-e5-small（多言語）</option>
-    <option value="eg2">段階3：意味検索 EmbeddingGemma 2（PC向け）</option>
+    <option value="bm25">段階0：BM25 キーワード一致（モデル不要・0MB）</option>
+    <option value="ruri30" selected>段階1：Ruri v3-30m（最軽量・約30〜60MB・既定）</option>
+    <option value="e5s">段階2：multilingual-e5-small（多言語・約118〜205MB）</option>
+    <option value="eg2">段階3：EmbeddingGemma 2（約157〜174MB・PC向け）</option>
   </select>
   <div id="devWrap">
   <span class="lbl">実行方式（意味検索のみ）</span>
@@ -135,12 +136,20 @@ body.lab .labOnly{display:revert !important}
 </div>
 </div>
 
-<h2>2. ことばでさがす</h2>
+<h2>2. 言葉で検索する</h2>
 <div class="card">
-  <span class="lbl">さがしたいこと（ふだんのことばでOK）</span>
+  <span class="lbl">検索方法（使用するAIモデル）</span>
+  <select id="selMethodEasy">
+    <option value="ruri30" selected>AI意味検索・標準 — Ruri v3-30m（日本語向け・約30〜60MB）</option>
+    <option value="e5s">AI意味検索・多言語 — multilingual-e5-small（約118〜205MB）</option>
+    <option value="eg2">AI意味検索・高性能 — EmbeddingGemma 2（約157〜174MB・パソコン推奨）</option>
+    <option value="bm25">キーワード一致 — BM25（ダウンロード不要・すぐ動く）</option>
+  </select>
+  <p class="meta">モデルのダウンロードは初回のみです。2回目以降は端末内に保存されたものを使います（通信なしで動作）。</p>
+  <span class="lbl">検索したい内容（普段の言葉でかまいません）</span>
   <input type="text" id="q" value="遠足の持ち物を知りたい">
-  <div class="cmp"><input type="checkbox" id="cmpChk"><label for="cmpChk">「ことば一致」の結果ともくらべる（AIとの違いがわかる）</label></div>
-  <button id="searchBtn" type="button">さがす</button>
+  <div class="cmp"><input type="checkbox" id="cmpChk"><label for="cmpChk">キーワード一致（従来方式）の結果と比較する</label></div>
+  <button id="searchBtn" type="button">検索</button>
   <pre id="prog" hidden></pre>
   <div id="result"></div>
 </div>
@@ -176,7 +185,7 @@ body.lab .labOnly{display:revert !important}
 </details>
 </div>
 
-<footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>モデル等の初回取得が済んだ機能は、機内モードでも動作します（オフライン対応）。<br>リポジトリ: 224096-cmd/offline-photo-search<br><button id="labBtn" class="gear" type="button" aria-label="詳細設定">⚙</button></footer>
+<footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>モデル等の初回取得が済んだ機能は、機内モードでも動作します（オフライン対応）。<br>共有メニューの「ホーム画面に追加」で、単体のアプリとして全画面で利用できます。<br>リポジトリ: 224096-cmd/offline-photo-search<br><button id="labBtn" class="gear" type="button" aria-label="詳細設定">⚙</button></footer>
 </main>
 
 <!-- アプリ内カメラ（無音撮影） -->
@@ -188,7 +197,7 @@ body.lab .labOnly{display:revert !important}
     <button id="shotBtn" type="button">撮影して追加（無音）</button>
     <button id="camClose" class="ghost" type="button">閉じる</button>
   </div>
-  <p class="meta" id="camMeta">映像は端末の外に出ません。続けて何枚でも撮れます。</p>
+  <p class="meta" id="camMeta">映像が外部に送信されることはありません。続けて何枚でも撮影できます。</p>
 </div>
 
 <script type="module">
@@ -204,14 +213,14 @@ function camSay(msg) { if (!$("camOverlay").hidden) $("camMeta").textContent = m
 // ===== モデル定義 =====
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const MODELS = {
-  e5s:    { id: "Xenova/multilingual-e5-small",         short: "e5-small",         qp: "query: ",                       dp: "passage: ",            dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q8" },
-  ruri30: { id: "sirasagi62/ruri-v3-30m-ONNX",          short: "Ruri v3-30m",      qp: "検索クエリ: ",                   dp: "検索文書: ",            dtypeFor: (d) => d === "webgpu" ? "fp16" : "q8" },
-  eg2:    { id: "onnx-community/embeddinggemma-2-ONNX", short: "EmbeddingGemma 2", qp: "task: search result | query: ", dp: "title: none | text: ", dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q4" }
+  e5s:    { id: "Xenova/multilingual-e5-small",         short: "e5-small",         size: "約118〜205MB", qp: "query: ",                       dp: "passage: ",            dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q8" },
+  ruri30: { id: "sirasagi62/ruri-v3-30m-ONNX",          short: "Ruri v3-30m",      size: "約30〜60MB",   qp: "検索クエリ: ",                   dp: "検索文書: ",            dtypeFor: (d) => d === "webgpu" ? "fp16" : "q8" },
+  eg2:    { id: "onnx-community/embeddinggemma-2-ONNX", short: "EmbeddingGemma 2", size: "約157〜174MB", qp: "task: search result | query: ", dp: "title: none | text: ", dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q4" }
 };
 const NOTES = {
   bm25: "単語（文字2つ組）の一致で探す古典手法。モデル不要で即動作。言い換えに弱い＝意味検索との比較基準。",
   e5s: "iPhone実測で安定（WASM・118MB）。多言語対応。",
-  ruri30: "日本語特化の超小型モデル（約30MB級）。iPhone実測で最速・安定。",
+  ruri30: "日本語特化の超小型モデル（q8で約30MB）。iPhone実測で最速・安定。",
   eg2: "高性能だがiPhoneでは不安定（PC・対応端末向け）。"
 };
 
@@ -554,7 +563,7 @@ async function importImages(files) {
   $("camBtn").disabled = false;
   $("sampleBtn").disabled = false;
   $("addBtn").disabled = false;
-  if (!fail) setStatus("✅ 取り込み完了：文字あり " + ok + " 件・文字なし " + noText + " 件。あとは検索欄にことばを入れて「さがす」だけです（AIの準備は自動で行われます）。", "ok");
+  if (!fail) setStatus("✅ 取り込み完了：文字あり " + ok + " 件・文字なし " + noText + " 件。あとは検索欄に言葉を入力して「検索」を押してください（AIモデルの準備は自動で行われます）。", "ok");
 }
 $("pickBtn").addEventListener("click", () => $("fileImgs").click());
 $("fileImgs").addEventListener("change", (e) => { importImages(e.target.files); e.target.value = ""; });
@@ -705,7 +714,17 @@ function updateVecMeta() {
     : "先に「モデルを読み込む」を押してください。";
   $("vecBtn").hidden = !(ready && pend > 0);
 }
-$("selMethod").addEventListener("change", updateVecMeta);
+// 一般画面の「検索方法」と詳細設定の「検索方式」は同じ値を双方向同期する
+function syncMethodSelects(v) {
+  if ($("selMethod").value !== v) $("selMethod").value = v;
+  if ($("selMethodEasy").value !== v) $("selMethodEasy").value = v;
+  $("cmpChk").disabled = (v === "bm25");
+  if (v === "bm25") $("cmpChk").checked = false;
+  if (v === "eg2" && isIOS) setStatus("このモデルはサイズが大きいため（約157〜174MB）、iPhoneでは処理が中断する場合があります。パソコンでの利用を推奨します。", "warn");
+  updateVecMeta();
+}
+$("selMethod").addEventListener("change", () => syncMethodSelects($("selMethod").value));
+$("selMethodEasy").addEventListener("change", () => syncMethodSelects($("selMethodEasy").value));
 
 async function loadModel() {
   const key = currentMethod();
@@ -717,10 +736,11 @@ async function loadModel() {
   state.dtype = dtype;
   $("loadBtn").disabled = true;
   $("selMethod").disabled = true;
+  $("selMethodEasy").disabled = true;
   $("selDevice").disabled = true;
   for (const k of Object.keys(progress)) delete progress[k];
   $("prog").hidden = true;
-  setStatus("モデル読み込み中（" + m.short + " / " + device + " / " + dtype + "）… 画面を切り替えないでください。");
+  setStatus("AIモデルを読み込んでいます：" + m.short + "（" + m.size + "・" + device + "/" + dtype + "）。画面を切り替えずにお待ちください。");
   const t0 = performance.now();
   try {
     setPhase("モデル読み込み（" + m.short + "・" + device + "/" + dtype + "）");
@@ -755,17 +775,18 @@ async function loadModel() {
     return false;
   } finally {
     $("selMethod").disabled = false;
+    $("selMethodEasy").disabled = false;
     $("selDevice").disabled = false;
     updateVecMeta();
   }
 }
 $("loadBtn").addEventListener("click", loadModel);
 
-// 検索やベンチの前に、モデル読み込み→未処理のベクトル化を自動で済ませる（かんたん操作の中核）
+// 検索やベンチの前に、モデル読み込み→未処理のベクトル化を自動で実行する（簡単操作の中核）
 async function ensureReady(method) {
   if (method === "bm25") return true;
   if (!state.extractor || state.loadedKey !== method) {
-    setStatus("はじめての検索の準備をしています（AIモデルの読み込み。初回のみ1〜2分）… そのままお待ちください。");
+    setStatus("検索の準備を行っています：AIモデル「" + MODELS[method].short + "」（" + MODELS[method].size + "）を読み込みます。初回のみダウンロードに1〜2分、2回目以降は数秒〜十数秒です。");
     const ok = await loadModel();
     if (!ok) return false;
   }
@@ -846,7 +867,7 @@ async function runSearch() {
   const method = currentMethod();
   const q = $("q").value.trim();
   if (!q) { alert("検索したい内容を入力してください"); return; }
-  if (searchableDocs().length === 0) { setStatus("検索できる文書が0件です。先に写真かテキストを入れてください。", "ng"); return; }
+  if (searchableDocs().length === 0) { setStatus("検索できる文書が0件です。先に写真かテキストを登録してください。", "ng"); return; }
   $("searchBtn").disabled = true;
   try {
     let results, took, extra = "";
@@ -855,8 +876,8 @@ async function runSearch() {
       results = bm25Search(q).filter((r) => r.score > 0);
       took = Math.round(performance.now() - t0);
       if (results.length === 0) {
-        $("result").innerHTML = '<p class="meta">一致する語を含む文書がありませんでした。言い換えに強い「意味検索」（設定パネルの検索方式で切替）を試してください。</p>';
-        setStatus("BM25では0件でした（文字の一致がない＝意味検索の出番です）。", "warn");
+        $("result").innerHTML = '<p class="meta">一致する単語を含む文書がありませんでした。言い換えに強いAI意味検索（検索方法で切り替え）をお試しください。</p>';
+        setStatus("キーワード一致では0件でした（同じ単語がない場合はAI意味検索が有効です）。", "warn");
         state.lastSearch = { query: q, method: method, tookMs: took, results: [] };
         return;
       }
@@ -882,7 +903,7 @@ async function runSearch() {
     const rows = top.map((r, i) =>
       '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(method === "bm25" ? 2 : 4) + "</td><td>" + (r.thumb ? '<img class="rthumb" src="' + r.thumb + '">' : "") + escapeHtml(r.text) + "</td></tr>"
     ).join("");
-    // 「くらべてみよう」：意味検索の結果の下に、ことば一致（BM25）の上位3件を並べる
+    // 比較表示：意味検索の結果の下にキーワード一致（BM25）の上位3件を併記する
     let cmpHtml = "";
     if (method !== "bm25" && $("cmpChk").checked) {
       const bt0 = performance.now();
@@ -893,11 +914,11 @@ async function runSearch() {
         ? bres.map((r, i) =>
             '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + (i + 1) + "位 " + r.score.toFixed(2) + "</td><td>" + (r.thumb ? '<img class="rthumb" src="' + r.thumb + '">' : "") + escapeHtml(r.text) + "</td></tr>"
           ).join("")
-        : '<tr><td colspan="2" class="meta">同じことばを含む文書が見つかりませんでした（0件）</td></tr>';
+        : '<tr><td colspan="2" class="meta">同じ単語を含む文書は見つかりませんでした（0件）</td></tr>';
       cmpHtml =
-        '<p class="cmpHead">くらべてみよう：「ことば一致」でさがすと…（' + btook + ' ms）</p>' +
+        '<p class="cmpHead">比較：キーワード一致（BM25）で検索した場合（' + btook + ' ms）</p>' +
         "<table><tr><th>スコア</th><th>文書</th></tr>" + brows + "</table>" +
-        '<p class="meta">上のAI（意味検索）は、同じことばが入っていなくても「意味が近い」文書を見つけられます。「ことば一致」は、同じことば（文字のならび）を含む文書しか見つけられません。2つの順位の違いが、その差です。</p>';
+        '<p class="meta">AIによる意味検索は、同じ単語が含まれていなくても意味の近い文書を見つけられます。キーワード一致では、同じ文字列を含む文書しか見つかりません。2つの結果の順位の違いが、その差を示しています。</p>';
     }
     $("result").innerHTML =
       '<p class="meta">方式: ' + label + " ／ 対象 " + searchableDocs().length + " 件 ／ 所要 " + took + " ms " + extra + "</p>" +
@@ -1129,17 +1150,17 @@ function setLab(on) {
 }
 $("labBtn").addEventListener("click", async () => {
   if (document.body.classList.contains("lab")) {
-    if (confirm("詳しい設定を隠して、ふだんの画面に戻しますか？")) { setLab(false); setStatus("ふだんの画面に戻しました。", "ok"); }
+    if (confirm("詳細設定を隠して、通常の画面に戻しますか？")) { setLab(false); setStatus("通常の画面に戻しました。", "ok"); }
     return;
   }
-  const input = prompt("合い言葉を入力してください");
+  const input = prompt("パスワードを入力してください");
   if (input == null || input === "") return;
   try {
     if ((await sha256hex(input.trim())) === LAB_HASH) {
       setLab(true);
-      setStatus("詳しい設定を表示しました（検索方式・ベンチ・書き出し・環境チェック）。⚙でいつでも戻せます。", "ok");
+      setStatus("詳細設定を表示しました（検索方式・精度評価・書き出し・環境チェック）。⚙からいつでも通常の画面に戻せます。", "ok");
     } else {
-      alert("合い言葉がちがいます");
+      alert("パスワードが違います");
     }
   } catch (e) {
     alert("この端末では確認できませんでした（HTTPSで開いてください）");
@@ -1159,7 +1180,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.13",
+    app: "offline-photo-search v0.13.2",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
