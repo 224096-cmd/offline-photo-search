@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.13.2</title>
+<title>オフライン画像・文書 意味検索 v0.14</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
-:root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#1a7f5a}
-@media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94}}
+:root{color-scheme:light dark;--fg:#1c1c1c;--bg:#f7f7f3;--card:#ffffff;--line:#d8d8d2;--ok:#1a7f5a;--ng:#b3261e;--warn:#9a5b00;--muted:#6b6b66;--accent:#2f55c0}
+@media(prefers-color-scheme:dark){:root{--fg:#ececea;--bg:#161614;--card:#1f1f1d;--line:#3a3a36;--muted:#9a9a94;--accent:#5b7ce6}}
 *{box-sizing:border-box}
 body{margin:0;padding:16px;font-family:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
 main{max-width:640px;margin:0 auto}
@@ -59,7 +59,23 @@ footer{color:var(--muted);font-size:.75rem;margin-top:1.5rem;text-align:center}
 #camOverlay[hidden]{display:none}
 .labOnly{display:none !important}
 body.lab .labOnly{display:revert !important}
-.gear{background:none;border:0;color:var(--muted);width:auto;font-size:1rem;font-weight:400;padding:6px 12px;margin:6px 0 0;cursor:pointer}
+.gear{background:none;border:0;color:var(--muted);width:auto;font-size:1.3rem;font-weight:400;padding:8px 10px;margin:0;cursor:pointer;flex:none}
+.bar{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin:0 0 10px}
+#dropZone{border:2px dashed var(--line);border-radius:12px;padding:20px 12px;text-align:center;color:var(--muted);cursor:pointer;margin:.25rem 0 .5rem;font-size:.9rem;line-height:1.7}
+#dropZone.drag{border-color:var(--accent);color:var(--accent);background:rgba(47,85,192,.08)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px;margin:.5rem 0}
+button.tile{position:relative;aspect-ratio:1;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card);color:var(--fg);cursor:pointer;padding:0;width:100%;margin:0;font-weight:400}
+.tile img{width:100%;height:100%;object-fit:cover;display:block}
+.tile .tdoc{width:100%;height:100%;padding:6px;font-size:.58rem;line-height:1.45;color:var(--fg);overflow:hidden;text-align:left;word-break:break-all}
+.tile .badge{position:absolute;left:4px;top:4px;background:var(--accent);color:#fff;font-size:.6rem;font-weight:700;border-radius:6px;padding:1px 5px;pointer-events:none}
+.tile .badge.alt{background:var(--muted)}
+.tile .pend{position:absolute;right:4px;top:4px;width:8px;height:8px;border-radius:50%;background:var(--warn);pointer-events:none}
+#viewOverlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:60;display:flex;align-items:center;justify-content:center;padding:16px}
+#viewOverlay[hidden]{display:none}
+.viewBox{background:var(--card);color:var(--fg);border-radius:14px;max-width:560px;width:100%;max-height:86vh;overflow:auto;padding:14px}
+.viewBox img{width:auto;max-width:100%;max-height:240px;display:block;margin:0 auto 8px;border-radius:10px}
+.viewBox .body{font-size:.92rem;white-space:pre-wrap;word-break:break-word}
+.viewBox .row2{margin-top:10px}
 .cmp{display:flex;gap:8px;align-items:center;margin:.3rem 0 .5rem}
 .cmp input{width:auto;margin:0;transform:scale(1.2)}
 .cmp label{font-size:.85rem;color:var(--muted)}
@@ -69,8 +85,13 @@ body.lab .labOnly{display:revert !important}
 </head>
 <body>
 <main>
-<h1>オフライン画像・文書 意味検索</h1>
-<p class="sub">写真に写った文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.13.2 — 2モード構成（一般向け／詳細設定）・自動準備・比較表示・モデル選択（サイズ明記）］</span></p>
+<header class="bar">
+  <div>
+    <h1>オフライン画像・文書 意味検索</h1>
+    <p class="sub">写真やファイルの文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.14 — 検索を主画面化・ファイル対応（PDF/Word）・サムネイル表示・起動時自動準備］</span></p>
+  </div>
+  <button id="labBtn" class="gear" type="button" aria-label="詳細設定の表示切替" title="詳細設定">⚙</button>
+</header>
 
 <div id="crash" class="status warn" hidden></div>
 <div id="status" class="status">写真（お便り・プリント・板書など）を取り込むと、文字を読み取って検索できるようになります。</div>
@@ -80,20 +101,38 @@ body.lab .labOnly{display:revert !important}
   <p class="meta" style="margin:.4rem 0 0">
     <b>1.</b> 「サンプル10件を登録」を押すか、「カメラで撮る」でプリントやノートを撮影します（文字は自動で読み取られます）<br>
     <b>2.</b> 検索欄に、調べたい内容を普段の言葉で入力します（例：「遠足に何を持っていく？」）<br>
-    <b>3.</b> 「検索」を押します。初回のみAIモデルのダウンロードに時間がかかります（1〜2分。2回目以降はすぐに動きます）<br>
+    <b>3.</b> 「検索」を押します。AIモデルの準備はページを開いたときに自動で始まります（初回のみダウンロードで1〜2分。2回目以降はすぐに使えます）<br>
     <b>ヒント：</b>「キーワード一致の結果と比較する」にチェックを入れると、同じ単語が含まれていなくても見つけられる意味検索の特徴を確認できます
   </p>
 </details>
 
-<h2>1. 写真やメモを登録する</h2>
+<h2>言葉で検索する</h2>
 <div class="card">
-  <span class="lbl">写真から（文字は自動で読み取ります）</span>
+  <span class="lbl">検索方法（使用するAIモデル）</span>
+  <select id="selMethodEasy">
+    <option value="ruri30" selected>AI意味検索・標準 — Ruri v3-30m（日本語向け・約30〜60MB）</option>
+    <option value="e5s">AI意味検索・多言語 — multilingual-e5-small（約118〜205MB）</option>
+    <option value="eg2">AI意味検索・高性能 — EmbeddingGemma 2（約157〜174MB・パソコン推奨）</option>
+    <option value="bm25">キーワード一致 — BM25（ダウンロード不要・すぐ動く）</option>
+  </select>
+  <p class="meta">モデルのダウンロードは初回のみです。2回目以降は端末内に保存されたものを使います（通信なしで動作）。</p>
+  <span class="lbl">検索したい内容（普段の言葉でかまいません）</span>
+  <input type="text" id="q" value="遠足の持ち物を知りたい">
+  <div class="cmp"><input type="checkbox" id="cmpChk"><label for="cmpChk">キーワード一致（従来方式）の結果と比較する</label></div>
+  <button id="searchBtn" type="button">検索</button>
+  <pre id="prog" hidden></pre>
+  <div id="result"></div>
+</div>
+
+<h2>写真やファイルを追加する</h2>
+<div class="card">
+  <div id="dropZone">ここに写真・PDF・Word（.docx）・テキストファイルをドロップ<br>またはタップしてファイルを選択（複数可）</div>
+  <input type="file" id="fileImgs" accept="image/*,.pdf,.docx,.txt,.md,.csv,application/pdf,text/plain" multiple hidden>
   <div class="row2">
-    <button id="pickBtn" type="button">写真を選ぶ（複数可）</button>
     <button id="camBtn" class="ghost" type="button">カメラで撮る（無音・ズーム可）</button>
+    <button id="sampleBtn" class="ghost" type="button">サンプル10件を登録</button>
   </div>
-  <input type="file" id="fileImgs" accept="image/*" multiple hidden>
-  <p class="meta">文字の読み取りには1枚あたり数秒〜20秒かかります。写真と文字はこの端末内にのみ保存され、外部には送信されません。</p>
+  <p class="meta">対応形式：画像（JPEG・PNGなど）／PDF／Word（.docx）／テキスト（.txt・.md・.csv）。写真の文字読み取りには1枚あたり数秒〜20秒かかります。内容はこの端末内にのみ保存され、外部には送信されません。長い文書は先頭約4,000文字が検索対象になります。</p>
   <span class="lbl labOnly">OCRエンジン（文字読み取りの方式）</span>
   <select id="selOcr" class="labOnly">
     <option value="tesseract" selected>Tesseract.js（軽量・オフライン可）</option>
@@ -103,15 +142,13 @@ body.lab .labOnly{display:revert !important}
   <span class="lbl">テキストを直接追加（メモなど）</span>
   <textarea id="newDoc" placeholder="例：保護者の皆様へ：明日の遠足には…"></textarea>
   <button id="addBtn" class="ghost" type="button">このテキストを追加</button>
-  <div class="row2">
-    <button id="sampleBtn" class="ghost" type="button">サンプル10件を登録（学校のプリント風）</button>
-    <button id="clearBtn" class="ghost" type="button">全削除</button>
-  </div>
   <p class="meta" id="dbMeta">読み込み中…</p>
-  <ul class="docs" id="docList"></ul>
+  <div class="grid" id="docGrid"></div>
+  <button id="clearBtn" class="ghost" type="button">登録した文書をすべて削除</button>
 </div>
 
 <div class="labOnly">
+<button id="labExit" class="ghost" type="button">詳細設定を閉じて通常の画面に戻す</button>
 <h2>設定：検索方式とモデル</h2>
 <div class="card">
   <span class="lbl">検索方式</span>
@@ -134,24 +171,6 @@ body.lab .labOnly{display:revert !important}
   <p class="meta" id="vecMeta"></p>
   <button id="vecBtn" class="ghost" type="button" hidden>未処理の文書を全件ベクトル化（1件ずつ・途中保存）</button>
 </div>
-</div>
-
-<h2>2. 言葉で検索する</h2>
-<div class="card">
-  <span class="lbl">検索方法（使用するAIモデル）</span>
-  <select id="selMethodEasy">
-    <option value="ruri30" selected>AI意味検索・標準 — Ruri v3-30m（日本語向け・約30〜60MB）</option>
-    <option value="e5s">AI意味検索・多言語 — multilingual-e5-small（約118〜205MB）</option>
-    <option value="eg2">AI意味検索・高性能 — EmbeddingGemma 2（約157〜174MB・パソコン推奨）</option>
-    <option value="bm25">キーワード一致 — BM25（ダウンロード不要・すぐ動く）</option>
-  </select>
-  <p class="meta">モデルのダウンロードは初回のみです。2回目以降は端末内に保存されたものを使います（通信なしで動作）。</p>
-  <span class="lbl">検索したい内容（普段の言葉でかまいません）</span>
-  <input type="text" id="q" value="遠足の持ち物を知りたい">
-  <div class="cmp"><input type="checkbox" id="cmpChk"><label for="cmpChk">キーワード一致（従来方式）の結果と比較する</label></div>
-  <button id="searchBtn" type="button">検索</button>
-  <pre id="prog" hidden></pre>
-  <div id="result"></div>
 </div>
 
 <div class="labOnly">
@@ -185,7 +204,7 @@ body.lab .labOnly{display:revert !important}
 </details>
 </div>
 
-<footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>モデル等の初回取得が済んだ機能は、機内モードでも動作します（オフライン対応）。<br>共有メニューの「ホーム画面に追加」で、単体のアプリとして全画面で利用できます。<br>リポジトリ: 224096-cmd/offline-photo-search<br><button id="labBtn" class="gear" type="button" aria-label="詳細設定">⚙</button></footer>
+<footer>写真・文字・ベクトルはすべて端末内（IndexedDB）にのみ保存され、外部へ送信しません。<br>モデル等の初回取得が済んだ機能は、機内モードでも動作します（オフライン対応）。<br>共有メニューの「ホーム画面に追加」で、単体のアプリとして全画面で利用できます。<br>リポジトリ: 224096-cmd/offline-photo-search</footer>
 </main>
 
 <!-- アプリ内カメラ（無音撮影） -->
@@ -200,6 +219,19 @@ body.lab .labOnly{display:revert !important}
   <p class="meta" id="camMeta">映像が外部に送信されることはありません。続けて何枚でも撮影できます。</p>
 </div>
 
+<!-- 文書ビューア（サムネイルをタップすると開く） -->
+<div id="viewOverlay" hidden>
+  <div class="viewBox">
+    <p class="meta" id="viewMeta"></p>
+    <img id="viewImg" alt="登録文書の縮小画像" hidden>
+    <div class="body" id="viewText"></div>
+    <div class="row2">
+      <button id="viewDel" class="ghost" type="button">この文書を削除</button>
+      <button id="viewClose" type="button">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -212,6 +244,9 @@ function camSay(msg) { if (!$("camOverlay").hidden) $("camMeta").textContent = m
 
 // ===== モデル定義 =====
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isMobile = isIOS || /Android/i.test(navigator.userAgent);
+// 端末ごとの標準モデル：スマートフォン＝Ruri v3-30m（最軽量）、パソコン＝EmbeddingGemma 2（高性能）
+const DEFAULT_METHOD = isMobile ? "ruri30" : "eg2";
 const MODELS = {
   e5s:    { id: "Xenova/multilingual-e5-small",         short: "e5-small",         size: "約118〜205MB", qp: "query: ",                       dp: "passage: ",            dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q8" },
   ruri30: { id: "sirasagi62/ruri-v3-30m-ONNX",          short: "Ruri v3-30m",      size: "約30〜60MB",   qp: "検索クエリ: ",                   dp: "検索文書: ",            dtypeFor: (d) => d === "webgpu" ? "fp16" : "q8" },
@@ -334,36 +369,76 @@ function renderDocs() {
     if (!(d.text && d.text.trim())) noText++;
     for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
   }
-  $("dbMeta").textContent = "登録 " + state.docs.length + " 件（うち文字なし画像 " + noText + " 件）／ ベクトル化済み：e5 " + counts.e5s + "・Ruri " + counts.ruri30 + "・EG2 " + counts.eg2;
-  const list = $("docList");
-  list.innerHTML = "";
+  const shownN = Math.min(state.docs.length, 24);
+  $("dbMeta").textContent = "登録 " + state.docs.length + " 件（うち文字なし画像 " + noText + " 件）" +
+    (state.docs.length > 24 ? "・最新 " + shownN + " 件を表示" : "") +
+    "。タップすると全文を確認・削除できます。";
+  const grid = $("docGrid");
+  grid.innerHTML = "";
   const sorted = state.docs.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  const latest = sorted.slice(0, 6);
-  for (const d of latest) {
-    const li = document.createElement("li");
-    if (d.thumb) { const im = document.createElement("img"); im.src = d.thumb; li.appendChild(im); }
-    const span = document.createElement("span");
-    span.className = "txt";
-    span.textContent = (d.text && d.text.trim()) ? d.text : "（文字なし画像：将来の画像検索の対象）";
-    li.appendChild(span);
-    for (const k of ["e5s", "ruri30", "eg2"]) {
-      if (d.vecs && d.vecs[k]) { const c = document.createElement("span"); c.className = "chip"; c.textContent = MODELS[k].short.split(" ")[0]; li.appendChild(c); }
-    }
-    const btn = document.createElement("button");
-    btn.className = "mini";
-    btn.type = "button";
-    btn.textContent = "削除";
-    btn.addEventListener("click", async () => { await dbDel(d.id); state.docs = state.docs.filter((x) => x.id !== d.id); renderDocs(); updateVecMeta(); });
-    li.appendChild(btn);
-    list.appendChild(li);
-  }
-  if (sorted.length > 6) {
-    const more = document.createElement("li");
-    more.innerHTML = '<span class="txt meta">最新6件を表示中（全 ' + sorted.length + " 件）</span>";
-    list.appendChild(more);
-  }
+  for (const d of sorted.slice(0, 24)) grid.appendChild(makeTile(d, null));
   updateVecMeta();
 }
+
+// サムネイルタイルを作る（info があれば検索結果用＝順位バッジ付き）
+function makeTile(d, info) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "tile";
+  if (d.thumb) {
+    const im = document.createElement("img");
+    im.src = d.thumb;
+    im.alt = "";
+    b.appendChild(im);
+  } else {
+    const t = document.createElement("div");
+    t.className = "tdoc";
+    t.textContent = (d.text && d.text.trim()) ? d.text.slice(0, 64) : "（文字なし画像）";
+    b.appendChild(t);
+  }
+  if (info) {
+    const g = document.createElement("span");
+    g.className = "badge" + (info.alt ? " alt" : "");
+    g.textContent = info.rank + "位";
+    b.appendChild(g);
+  } else if (state.loadedKey && d.text && d.text.trim() && !(d.vecs && d.vecs[state.loadedKey])) {
+    const p = document.createElement("span");
+    p.className = "pend";
+    p.title = "このモデルでは未ベクトル化（検索時に自動処理）";
+    b.appendChild(p);
+  }
+  b.addEventListener("click", () => openViewer(d, info));
+  return b;
+}
+
+// ===== 文書ビューア =====
+let viewDocRef = null;
+function openViewer(d, info) {
+  viewDocRef = d;
+  const parts = [];
+  if (info) parts.push(info.rank + "位・スコア " + info.score + (info.label ? "（" + info.label + "）" : ""));
+  if (d.name) parts.push(d.name);
+  parts.push(d.type === "image" ? "画像" : d.type === "pdf" ? "PDF" : d.type === "docx" ? "Word" : "テキスト");
+  if (d.ocr) parts.push("OCR " + (OCR_LABEL[d.ocr.engine] || d.ocr.engine) + "・" + d.ocr.ms + "ms");
+  if (d.createdAt) parts.push("登録 " + d.createdAt.slice(0, 10));
+  $("viewMeta").textContent = parts.join(" ／ ");
+  if (d.thumb) { $("viewImg").src = d.thumb; $("viewImg").hidden = false; }
+  else { $("viewImg").hidden = true; }
+  $("viewText").textContent = (d.text && d.text.trim()) ? d.text : "（文字は見つかりませんでした。写真として保管されています）";
+  $("viewDel").hidden = !d.id;
+  $("viewOverlay").hidden = false;
+}
+$("viewClose").addEventListener("click", () => { $("viewOverlay").hidden = true; });
+$("viewOverlay").addEventListener("click", (e) => { if (e.target === $("viewOverlay")) $("viewOverlay").hidden = true; });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("viewOverlay").hidden) $("viewOverlay").hidden = true; });
+$("viewDel").addEventListener("click", async () => {
+  if (!viewDocRef || !viewDocRef.id) return;
+  if (!confirm("この文書を削除しますか？")) return;
+  await dbDel(viewDocRef.id);
+  state.docs = state.docs.filter((x) => x.id !== viewDocRef.id);
+  $("viewOverlay").hidden = true;
+  renderDocs();
+});
 
 async function addTextDoc(text) {
   const doc = { id: newId(), type: "text", text: text, createdAt: new Date().toISOString(), vecs: {} };
@@ -536,37 +611,151 @@ async function fileToCanvases(file) {
   return { canvas: c, thumb: t.toDataURL("image/jpeg", 0.7) };
 }
 
-async function importImages(files) {
+// ===== ファイル取り込み（画像・PDF・Word・テキスト） =====
+const MAX_DOC_CHARS = 4000; // 長文はここまでを検索対象にする（埋め込み時間の暴走防止）
+
+let PDFJS = null;
+async function getPdfjs() {
+  if (PDFJS) return PDFJS;
+  const mod = await import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs");
+  mod.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+  PDFJS = mod;
+  return mod;
+}
+let MAMMOTH = null;
+async function getMammoth() {
+  if (MAMMOTH) return MAMMOTH;
+  await loadScript("https://cdn.jsdelivr.net/npm/mammoth@1.13.0/mammoth.browser.min.js");
+  if (!window.mammoth) throw new Error("Word読み取りライブラリを読み込めませんでした");
+  MAMMOTH = window.mammoth;
+  return MAMMOTH;
+}
+
+// テキストが取り出せたファイルを文書として保存する（画像以外の共通経路）
+async function addFileDoc(name, text, thumb, kind) {
+  const t = (text || "").replace(/\s+/g, " ").trim().slice(0, MAX_DOC_CHARS);
+  const doc = { id: newId(), type: kind, name: name || null, text: t, thumb: thumb || null, createdAt: new Date().toISOString(), vecs: {} };
+  await dbPut(doc);
+  state.docs.push(doc);
+  if (t && state.extractor && state.loadedKey) {
+    try {
+      setPhase("登録時ベクトル化（" + MODELS[state.loadedKey].short + "）");
+      const out = await state.extractor([MODELS[state.loadedKey].dp + t], ENC_OPTS);
+      const v = toVec(out);
+      free(out);
+      await saveVec(doc, state.loadedKey, v);
+    } catch (e) {}
+    clearPhase();
+  }
+  renderDocs();
+  return t.length;
+}
+
+// PDF：文字情報があれば抽出、なければ（スキャンPDF）先頭ページを画像化してOCR
+async function extractPdf(file, name) {
+  const pdfjs = await getPdfjs();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjs.getDocument({ data: data }).promise;
+  const readPages = Math.min(pdf.numPages, 20);
+  let text = "";
+  for (let i = 1; i <= readPages; i++) {
+    const tc = await (await pdf.getPage(i)).getTextContent();
+    text += tc.items.map((it) => it.str).join(" ") + "\n";
+    if (text.length > MAX_DOC_CHARS * 2) break;
+  }
+  let thumb = null;
+  try {
+    const p1 = await pdf.getPage(1);
+    const vp1 = p1.getViewport({ scale: 1 });
+    const vp = p1.getViewport({ scale: 96 / Math.max(vp1.width, vp1.height) });
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(vp.width));
+    c.height = Math.max(1, Math.round(vp.height));
+    await p1.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+    thumb = c.toDataURL("image/jpeg", 0.7);
+  } catch (e) {}
+  if (text.replace(/[\s　]/g, "").length >= 20) return { text: text, thumb: thumb };
+  // 文字情報がない＝スキャンPDF。先頭5ページをOCRにかける
+  let ocrText = "";
+  const ocrPages = Math.min(pdf.numPages, 5);
+  for (let i = 1; i <= ocrPages; i++) {
+    setStatus("スキャンPDFをOCR中（" + name + "・" + i + "/" + ocrPages + "ページ）… 1ページ数秒〜20秒かかります。");
+    const page = await pdf.getPage(i);
+    const vp1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(2, 1600 / Math.max(vp1.width, vp1.height)) });
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(vp.width));
+    c.height = Math.max(1, Math.round(vp.height));
+    await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+    const rec = await recognizeImage(currentOcr(), c);
+    ocrText += rec.raw + "\n";
+  }
+  return { text: ocrText, thumb: thumb };
+}
+
+async function importFiles(files) {
   files = Array.from(files || []);
   if (!files.length) return;
-  $("pickBtn").disabled = true;
-  $("camBtn").disabled = true;
-  $("sampleBtn").disabled = true;
-  $("addBtn").disabled = true;
+  const btns = ["camBtn", "sampleBtn", "addBtn", "clearBtn"];
+  for (const b of btns) $(b).disabled = true;
   let ok = 0, noText = 0, fail = 0;
   for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    const nm = f.name || "ファイル";
     try {
-      setPhase("OCR " + (i + 1) + "/" + files.length + "（" + (OCR_LABEL[currentOcr()] || currentOcr()) + "）");
-      setStatus("写真を処理中 " + (i + 1) + "/" + files.length + "（" + (files[i].name || "画像") + "）… 1枚あたり数秒〜20秒。画面を切り替えないでください。");
-      const { canvas, thumb } = await fileToCanvases(files[i]);
-      const res = await processCanvas(canvas, thumb, files[i].name || "画像");
-      if (res.judged) ok++; else noText++;
+      setPhase("取り込み " + (i + 1) + "/" + files.length + "（" + nm + "）");
+      const isPdf = /\.pdf$/i.test(nm) || f.type === "application/pdf";
+      const isDocx = /\.docx$/i.test(nm);
+      const isTxt = /\.(txt|md|csv)$/i.test(nm) || (f.type || "").startsWith("text/");
+      if ((f.type || "").startsWith("image/")) {
+        setStatus("写真を処理中 " + (i + 1) + "/" + files.length + "（" + nm + "）… 1枚あたり数秒〜20秒かかります。画面を切り替えずにお待ちください。");
+        const { canvas, thumb } = await fileToCanvases(f);
+        const res = await processCanvas(canvas, thumb, nm);
+        if (res.judged) ok++; else noText++;
+      } else if (isPdf) {
+        setStatus("PDFを読み込んでいます（" + nm + "）… 初回のみ読み取り用ライブラリを取得します。");
+        const r = await extractPdf(f, nm);
+        const n = await addFileDoc(nm, r.text, r.thumb, "pdf");
+        if (n > 0) ok++; else noText++;
+      } else if (isDocx) {
+        setStatus("Word文書を読み込んでいます（" + nm + "）… 初回のみ読み取り用ライブラリを取得します。");
+        const mam = await getMammoth();
+        const r = await mam.extractRawText({ arrayBuffer: await f.arrayBuffer() });
+        const n = await addFileDoc(nm, r.value || "", null, "docx");
+        if (n > 0) ok++; else noText++;
+      } else if (isTxt) {
+        const n = await addFileDoc(nm, await f.text(), null, "text");
+        if (n > 0) ok++; else noText++;
+      } else {
+        throw new Error("対応していない形式です（画像・PDF・.docx・.txt/.md/.csv に対応。旧形式の .doc は .docx に変換してください）");
+      }
       await sleep(30);
     } catch (e) {
       fail++;
       clearPhase();
-      setStatus("❌ 処理に失敗（" + (files[i].name || "画像") + "）：" + (e && e.message ? e.message : e), "ng");
+      setStatus("❌ 処理に失敗（" + nm + "）：" + (e && e.message ? e.message : e), "ng");
     }
   }
   clearPhase();
-  $("pickBtn").disabled = false;
-  $("camBtn").disabled = false;
-  $("sampleBtn").disabled = false;
-  $("addBtn").disabled = false;
-  if (!fail) setStatus("✅ 取り込み完了：文字あり " + ok + " 件・文字なし " + noText + " 件。あとは検索欄に言葉を入力して「検索」を押してください（AIモデルの準備は自動で行われます）。", "ok");
+  for (const b of btns) $(b).disabled = false;
+  if (!fail) setStatus("✅ 取り込み完了：文字あり " + ok + " 件・文字なし " + noText + " 件。検索欄に言葉を入力して「検索」を押してください（AIの準備は自動で行われます）。", "ok");
 }
-$("pickBtn").addEventListener("click", () => $("fileImgs").click());
-$("fileImgs").addEventListener("change", (e) => { importImages(e.target.files); e.target.value = ""; });
+$("fileImgs").addEventListener("change", (e) => { importFiles(e.target.files); e.target.value = ""; });
+
+// ドラッグ＆ドロップ
+const dz = $("dropZone");
+dz.addEventListener("click", () => $("fileImgs").click());
+dz.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileImgs").click(); } });
+dz.setAttribute("tabindex", "0");
+dz.setAttribute("role", "button");
+["dragenter", "dragover"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("drag"); }));
+["dragleave", "drop"].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("drag"); }));
+dz.addEventListener("drop", (e) => {
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) importFiles(e.dataTransfer.files);
+});
+// ページ全体へのドロップでファイルが別タブで開いてしまうのを防ぐ
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
 
 // ===== アプリ内カメラ（無音撮影・ズーム） =====
 function applyPreviewZoom() {
@@ -581,7 +770,7 @@ function applyPreviewZoom() {
 }
 async function openCam() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    setStatus("❌ この環境ではカメラAPIを使えません。「写真を選ぶ」から取り込んでください。", "ng");
+    setStatus("❌ この環境ではカメラAPIを使えません。ファイル選択（点線の枠）から取り込んでください。", "ng");
     return;
   }
   try {
@@ -728,7 +917,9 @@ $("selMethodEasy").addEventListener("change", () => syncMethodSelects($("selMeth
 
 async function loadModel() {
   const key = currentMethod();
-  if (key === "bm25") return;
+  if (key === "bm25") return true;
+  if (state.loading) return false; // 二重起動防止（起動時の自動準備と検索ボタンの同時実行など）
+  state.loading = true;
   const m = MODELS[key];
   const device = resolveDevice();
   const dtype = m.dtypeFor(device);
@@ -774,10 +965,11 @@ async function loadModel() {
     state.loadedKey = null;
     return false;
   } finally {
+    state.loading = false;
     $("selMethod").disabled = false;
     $("selMethodEasy").disabled = false;
     $("selDevice").disabled = false;
-    updateVecMeta();
+    renderDocs();
   }
 }
 $("loadBtn").addEventListener("click", loadModel);
@@ -785,6 +977,7 @@ $("loadBtn").addEventListener("click", loadModel);
 // 検索やベンチの前に、モデル読み込み→未処理のベクトル化を自動で実行する（簡単操作の中核）
 async function ensureReady(method) {
   if (method === "bm25") return true;
+  while (state.loading) await sleep(400); // 起動時の自動準備が進行中なら完了を待つ
   if (!state.extractor || state.loadedKey !== method) {
     setStatus("検索の準備を行っています：AIモデル「" + MODELS[method].short + "」（" + MODELS[method].size + "）を読み込みます。初回のみダウンロードに1〜2分、2回目以降は数秒〜十数秒です。");
     const ok = await loadModel();
@@ -858,7 +1051,7 @@ function bm25Search(query) {
       const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
       score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (lens[i] / avg)));
     }
-    return { text: d.text, thumb: d.thumb, score: score };
+    return { id: d.id, text: d.text, thumb: d.thumb, score: score };
   }).sort((a, x) => x.score - a.score);
 }
 
@@ -891,38 +1084,48 @@ async function runSearch() {
       free(out);
       const t1 = performance.now();
       results = searchableDocs()
-        .map((d) => ({ text: d.text, thumb: d.thumb, score: dot(qv, d.vecs[method]) }))
+        .map((d) => ({ id: d.id, text: d.text, thumb: d.thumb, score: dot(qv, d.vecs[method]) }))
         .sort((a, x) => x.score - a.score);
       took = Math.round(performance.now() - t0);
       extra = "（クエリ処理 " + Math.round(t1 - t0) + " ms・次元 " + qv.length + "）";
       clearPhase();
     }
-    const top = results.slice(0, 10).map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null }));
+    const digits = method === "bm25" ? 2 : 3;
+    const top = results.slice(0, 12).map((r, i) => ({ id: r.id, rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null }));
     state.lastSearch = { query: q, method: method, tookMs: took, results: top.map((r) => ({ rank: r.rank, score: r.score, text: r.text.slice(0, 80) })) };
     const label = method === "bm25" ? "BM25" : MODELS[method].short;
-    const rows = top.map((r, i) =>
-      '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + r.rank + "位 " + r.score.toFixed(method === "bm25" ? 2 : 4) + "</td><td>" + (r.thumb ? '<img class="rthumb" src="' + r.thumb + '">' : "") + escapeHtml(r.text) + "</td></tr>"
-    ).join("");
+    const res = $("result");
+    res.innerHTML = '<p class="meta">方式: ' + escapeHtml(label) + " ／ 対象 " + searchableDocs().length + " 件 ／ 所要 " + took + " ms " + extra + " ／ 類似度の高い順。タップで全文を表示</p>";
+    const g1 = document.createElement("div");
+    g1.className = "grid";
+    for (const r of top) g1.appendChild(makeTile(r, { rank: r.rank, score: r.score.toFixed(digits), label: label }));
+    res.appendChild(g1);
     // 比較表示：意味検索の結果の下にキーワード一致（BM25）の上位3件を併記する
-    let cmpHtml = "";
     if (method !== "bm25" && $("cmpChk").checked) {
       const bt0 = performance.now();
       const bres = bm25Search(q).filter((r) => r.score > 0).slice(0, 3);
       const btook = Math.round(performance.now() - bt0);
       state.lastSearch.compareBm25 = bres.map((r, i) => ({ rank: i + 1, score: Number(r.score.toFixed(2)), text: r.text.slice(0, 80) }));
-      const brows = bres.length
-        ? bres.map((r, i) =>
-            '<tr class="' + (i === 0 ? "top" : "") + '"><td class="score">' + (i + 1) + "位 " + r.score.toFixed(2) + "</td><td>" + (r.thumb ? '<img class="rthumb" src="' + r.thumb + '">' : "") + escapeHtml(r.text) + "</td></tr>"
-          ).join("")
-        : '<tr><td colspan="2" class="meta">同じ単語を含む文書は見つかりませんでした（0件）</td></tr>';
-      cmpHtml =
-        '<p class="cmpHead">比較：キーワード一致（BM25）で検索した場合（' + btook + ' ms）</p>' +
-        "<table><tr><th>スコア</th><th>文書</th></tr>" + brows + "</table>" +
-        '<p class="meta">AIによる意味検索は、同じ単語が含まれていなくても意味の近い文書を見つけられます。キーワード一致では、同じ文字列を含む文書しか見つかりません。2つの結果の順位の違いが、その差を示しています。</p>';
+      const h = document.createElement("p");
+      h.className = "cmpHead";
+      h.textContent = "比較：キーワード一致（BM25）で検索した場合（" + btook + " ms）";
+      res.appendChild(h);
+      if (bres.length) {
+        const g2 = document.createElement("div");
+        g2.className = "grid";
+        bres.forEach((r, i) => g2.appendChild(makeTile(r, { rank: i + 1, score: r.score.toFixed(2), label: "BM25", alt: true })));
+        res.appendChild(g2);
+      } else {
+        const p0 = document.createElement("p");
+        p0.className = "meta";
+        p0.textContent = "同じ単語を含む文書は見つかりませんでした（0件）。";
+        res.appendChild(p0);
+      }
+      const ex = document.createElement("p");
+      ex.className = "meta";
+      ex.textContent = "AIによる意味検索は、同じ単語が含まれていなくても意味の近い文書を見つけられます。キーワード一致では、同じ文字列を含む文書しか見つかりません。2つの結果の順位の違いが、その差を示しています。";
+      res.appendChild(ex);
     }
-    $("result").innerHTML =
-      '<p class="meta">方式: ' + label + " ／ 対象 " + searchableDocs().length + " 件 ／ 所要 " + took + " ms " + extra + "</p>" +
-      "<table><tr><th>スコア</th><th>文書</th></tr>" + rows + "</table>" + cmpHtml;
     setStatus("✅ 検索完了（" + label + "）。", "ok");
   } catch (e) {
     clearPhase();
@@ -1166,6 +1369,11 @@ $("labBtn").addEventListener("click", async () => {
     alert("この端末では確認できませんでした（HTTPSで開いてください）");
   }
 });
+$("labExit").addEventListener("click", () => {
+  setLab(false);
+  setStatus("通常の画面に戻しました。", "ok");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
 try { if (localStorage.getItem("ops-lab") === "1") document.body.classList.add("lab"); } catch (e) {}
 
 // ===== 書き出し =====
@@ -1180,7 +1388,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.13.2",
+    app: "offline-photo-search v0.14",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
@@ -1237,7 +1445,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2, t3).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v013.csv";
+  a.download = "ocr-search-v014.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -1270,12 +1478,20 @@ $("diagRun").addEventListener("click", diagRun);
     state.error = "IndexedDBを開けません: " + e;
     setStatus("❌ 端末内データベースを開けませんでした：" + e, "ng");
   }
+  // 端末に合わせた標準モデルを選択（スマートフォン＝Ruri v3-30m／パソコン＝EmbeddingGemma 2）
+  syncMethodSelects(DEFAULT_METHOD);
   renderDocs();
-  updateVecMeta();
   // オフライン対応（Service Worker）の登録。失敗しても通常動作には影響しない
   if ("serviceWorker" in navigator) {
     try { navigator.serviceWorker.register("./sw.js"); } catch (e) {}
   }
+  // 標準モデルの自動準備：初回はダウンロード、2回目以降は端末内キャッシュから読み込み
+  try {
+    const m = MODELS[DEFAULT_METHOD];
+    setStatus("この端末の標準AI「" + m.short + "」（" + m.size + "）を準備しています… 初回のみダウンロードします。準備中もファイルの追加は可能です。");
+    const ok = await loadModel();
+    if (ok) setStatus("✅ 標準AI（" + m.short + "）の準備が完了しました。ファイルを追加して、言葉で検索できます。", "ok");
+  } catch (e) {}
 })();
 </script>
 </body>
