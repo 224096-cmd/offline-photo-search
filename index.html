@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.15</title>
+<title>オフライン画像・文書 意味検索 v0.16</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
@@ -99,7 +99,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 <header class="bar">
   <div>
     <h1>オフライン画像・文書 意味検索</h1>
-    <p class="sub">写真やファイルの文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.15 — サンプル写真同梱・写真主体のライトボックス・本体画像保存・UI刷新］</span></p>
+    <p class="sub">写真やファイルの文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.16 — 一般写真サンプル20枚追加（計34枚）・文字のない写真の「見た目」検索（EmbeddingGemma 2）・メモ機能］</span></p>
   </div>
   <button id="labBtn" class="gear" type="button" aria-label="詳細設定の表示切替" title="詳細設定">⚙</button>
 </header>
@@ -110,7 +110,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 <details id="howto" style="margin:0 0 10px">
   <summary>はじめての方へ（使い方）</summary>
   <p class="meta" style="margin:.4rem 0 0">
-    <b>1.</b> 「サンプル写真14枚で試す」を押すか、「カメラで撮る」でプリントやノートを撮影します（文字は自動で読み取られます）<br>
+    <b>1.</b> 「サンプル写真34枚で試す」を押すか、「カメラで撮る」でプリントやノートを撮影します（文字は自動で読み取られます）<br>
     <b>2.</b> 検索欄に、調べたい内容を普段の言葉で入力します（例：「遠足に何を持っていく？」）<br>
     <b>3.</b> 「検索」を押します。AIモデルの準備はページを開いたときに自動で始まります（初回のみダウンロードで1〜2分。2回目以降はすぐに使えます）<br>
     <b>ヒント：</b>「キーワード一致の結果と比較する」にチェックを入れると、同じ単語が含まれていなくても見つけられる意味検索の特徴を確認できます
@@ -123,7 +123,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
   <select id="selMethodEasy">
     <option value="ruri30" selected>AI意味検索・標準 — Ruri v3-30m（日本語向け・約30〜60MB）</option>
     <option value="e5s">AI意味検索・多言語 — multilingual-e5-small（約118〜205MB）</option>
-    <option value="eg2">AI意味検索・高性能 — EmbeddingGemma 2（約157〜174MB・パソコン推奨）</option>
+    <option value="eg2">AI意味検索・高性能 — EmbeddingGemma 2（約255MB・文字のない写真も見た目で検索・パソコン推奨）</option>
     <option value="bm25">キーワード一致 — BM25（ダウンロード不要・すぐ動く）</option>
   </select>
   <p class="meta">モデルのダウンロードは初回のみです。2回目以降は端末内に保存されたものを使います（通信なしで動作）。</p>
@@ -143,7 +143,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
   <input type="file" id="fileImgs" accept="image/*,.pdf,.docx,.txt,.md,.csv,application/pdf,text/plain" multiple hidden>
   <div class="row2">
     <button id="camBtn" class="ghost" type="button">カメラで撮る（無音・ズーム可）</button>
-    <button id="sampleBtn" class="ghost" type="button">サンプル写真14枚で試す</button>
+    <button id="sampleBtn" class="ghost" type="button">サンプル写真34枚で試す</button>
   </div>
   <button id="sampleTextBtn" class="ghost labOnly" type="button">テキストサンプル10件を登録（ベンチ・検証用）</button>
   <p class="meta">対応形式：画像（JPEG・PNGなど）／PDF／Word（.docx）／テキスト（.txt・.md・.csv）。写真の文字読み取りには1枚あたり数秒〜20秒かかります。内容はこの端末内にのみ保存され、外部には送信されません。長い文書は先頭約4,000文字が検索対象になります。</p>
@@ -159,7 +159,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
   <p class="meta" id="dbMeta">読み込み中…</p>
   <div id="emptyState" hidden>
     まだ何も登録されていません。<br>サンプル写真で、このアプリにできることを体験できます。
-    <br><button id="emptySample" type="button">サンプル写真14枚で試す</button>
+    <br><button id="emptySample" type="button">サンプル写真34枚で試す</button>
   </div>
   <div class="grid" id="docGrid"></div>
   <button id="clearBtn" class="ghost" type="button">登録した文書をすべて削除</button>
@@ -174,7 +174,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
     <option value="bm25">段階0：BM25 キーワード一致（モデル不要・0MB）</option>
     <option value="ruri30" selected>段階1：Ruri v3-30m（最軽量・約30〜60MB・既定）</option>
     <option value="e5s">段階2：multilingual-e5-small（多言語・約118〜205MB）</option>
-    <option value="eg2">段階3：EmbeddingGemma 2（約157〜174MB・PC向け）</option>
+    <option value="eg2">段階3：EmbeddingGemma 2（約255MB・画像の見た目検索対応・PC向け）</option>
   </select>
   <div id="devWrap">
   <span class="lbl">実行方式（意味検索のみ）</span>
@@ -248,6 +248,11 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
         <summary>読み取った文字を表示</summary>
         <div class="body" id="viewText"></div>
       </details>
+      <span class="lbl">メモ・ラベルを追加（どの検索方法でも手がかりになります）</span>
+      <div class="searchRow">
+        <input type="text" id="viewNote" placeholder="例：ねこのイラスト、旅行の写真">
+        <button id="viewNoteBtn" type="button">保存</button>
+      </div>
       <div class="row2">
         <button id="viewDel" class="ghost" type="button">削除</button>
         <button id="viewClose" type="button">閉じる</button>
@@ -274,7 +279,7 @@ const DEFAULT_METHOD = isMobile ? "ruri30" : "eg2";
 const MODELS = {
   e5s:    { id: "Xenova/multilingual-e5-small",         short: "e5-small",         size: "約118〜205MB", qp: "query: ",                       dp: "passage: ",            dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q8" },
   ruri30: { id: "sirasagi62/ruri-v3-30m-ONNX",          short: "Ruri v3-30m",      size: "約30〜60MB",   qp: "検索クエリ: ",                   dp: "検索文書: ",            dtypeFor: (d) => d === "webgpu" ? "fp16" : "q8" },
-  eg2:    { id: "onnx-community/embeddinggemma-2-ONNX", short: "EmbeddingGemma 2", size: "約157〜174MB", qp: "task: search result | query: ", dp: "title: none | text: ", dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q4" }
+  eg2:    { id: "onnx-community/embeddinggemma-2-ONNX", short: "EmbeddingGemma 2", size: "約255MB", qp: "task: search result | query: ", dp: "title: none | text: ", dtypeFor: (d) => d === "webgpu" ? "q4f16" : "q4" }
 };
 const NOTES = {
   bm25: "単語（文字2つ組）の一致で探す古典手法。モデル不要で即動作。言い換えに弱い＝意味検索との比較基準。",
@@ -369,6 +374,41 @@ async function saveVec(doc, key, vec) {
   await dbPut(fresh);
   doc.vecs = fresh.vecs;
 }
+// 画像（見た目）ベクトルの保存（EmbeddingGemma 2 専用・文字のない写真用）
+async function saveIvec(doc, key, vec) {
+  const fresh = (await dbGet(doc.id)) || doc;
+  fresh.ivecs = Object.assign({}, fresh.ivecs || {});
+  fresh.ivecs[key] = vec;
+  await dbPut(fresh);
+  doc.ivecs = fresh.ivecs;
+}
+// 文字のない画像文書（＝従来は検索対象外だったもの）
+function imageOnlyDocs() { return state.docs.filter((d) => !(d.text && d.text.trim()) && (d.image || d.thumb)); }
+function dataUrlToCanvas(url) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext("2d").drawImage(img, 0, 0);
+      res(c);
+    };
+    img.onerror = () => rej(new Error("保存画像を読み込めません"));
+    img.src = url;
+  });
+}
+// 画像そのものをベクトル化（EmbeddingGemma 2 の画像エンコーダ・テキストと同一の768次元空間）
+async function embedImageDoc(d) {
+  if (!state.eg2) throw new Error("画像の見た目検索は EmbeddingGemma 2 でのみ利用できます");
+  const canvas = await dataUrlToCanvas(d.image || d.thumb);
+  const img = state.eg2.RawImage.fromCanvas(canvas);
+  const inputs = await state.eg2.proc(null, [[img]]);
+  const out = await state.eg2.model(inputs);
+  const v = toVec(out.sentence_embedding);
+  if (out.last_hidden_state) free(out.last_hidden_state);
+  free(out.sentence_embedding);
+  return v;
+}
 
 // ===== 文書の登録・一覧 =====
 const SAMPLES = [
@@ -425,7 +465,7 @@ function makeTile(d, info) {
   if (info) {
     const g = document.createElement("span");
     g.className = "badge" + (info.alt ? " alt" : (info.rank === 1 ? " first" : ""));
-    g.textContent = info.rank + "位";
+    g.textContent = info.tag || (info.rank + "位");
     b.appendChild(g);
   } else if (state.loadedKey && d.text && d.text.trim() && !(d.vecs && d.vecs[state.loadedKey])) {
     const p = document.createElement("span");
@@ -442,7 +482,8 @@ let viewDocRef = null;
 function openViewer(d, info) {
   viewDocRef = d;
   const parts = [];
-  if (info) parts.push(info.rank + "位・スコア " + info.score + (info.label ? "（" + info.label + "）" : ""));
+  if (info && info.tag) parts.push("この検索方法では対象外（文字のない写真）");
+  else if (info) parts.push(info.rank + "位・スコア " + info.score + (info.label ? "（" + info.label + "）" : ""));
   if (d.name) parts.push(d.name);
   parts.push(d.type === "image" ? "写真" : d.type === "pdf" ? "PDF" : d.type === "docx" ? "Word" : "テキスト");
   if (d.ocr) parts.push("文字認識 " + (OCR_LABEL[d.ocr.engine] || d.ocr.engine) + "・" + d.ocr.ms + "ms・" + d.ocr.chars + "文字");
@@ -463,6 +504,20 @@ $("viewClose").addEventListener("click", closeViewer);
 $("viewX").addEventListener("click", closeViewer);
 $("viewOverlay").addEventListener("click", (e) => { if (e.target === $("viewOverlay")) closeViewer(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("viewOverlay").hidden) closeViewer(); });
+$("viewNoteBtn").addEventListener("click", async () => {
+  const note = $("viewNote").value.trim();
+  if (!note) { alert("メモを入力してください"); return; }
+  if (!viewDocRef || !viewDocRef.id) return;
+  const real = state.docs.find((x) => x.id === viewDocRef.id);
+  if (!real) return;
+  real.text = ((real.text || "").trim() ? real.text.trim() + " " : "") + note;
+  real.vecs = {}; // 本文が変わったため、各方式で再ベクトル化の対象に戻す
+  await dbPut(real);
+  $("viewNote").value = "";
+  closeViewer();
+  renderDocs();
+  setStatus("✅ メモを保存しました。次の検索時に自動で処理され、どの検索方法でも対象になります。", "ok");
+});
 $("viewDel").addEventListener("click", async () => {
   if (!viewDocRef || !viewDocRef.id) return;
   if (!confirm("この文書を削除しますか？")) return;
@@ -510,14 +565,14 @@ $("sampleTextBtn").addEventListener("click", async () => {
 // ===== サンプル写真（samples/ に同梱・本研究のための自作画像） =====
 // 文字入り10枚（お便り・実習プリント・ノート・黒板など）＋文字なし4枚（イラスト）。
 // 実際のOCR経路に流すので、取り込み〜検索までの流れをそのまま体験できる。
-const SAMPLE_PHOTOS = ["p01.jpg","p02.jpg","p03.jpg","p04.jpg","p05.jpg","p06.jpg","p07.jpg","p08.jpg","p09.jpg","p10.jpg","p11.jpg","p12.jpg","p13.jpg","p14.jpg"];
+const SAMPLE_PHOTOS = ["p01.jpg", "p02.jpg", "p03.jpg", "p04.jpg", "p05.jpg", "p06.jpg", "p07.jpg", "p08.jpg", "p09.jpg", "p10.jpg", "p11.jpg", "p12.jpg", "p13.jpg", "p14.jpg", "p15.jpg", "p16.jpg", "p17.jpg", "p18.jpg", "p19.jpg", "p20.jpg", "p21.jpg", "p22.jpg", "p23.jpg", "p24.jpg", "p25.jpg", "p26.jpg", "p27.jpg", "p28.jpg", "p29.jpg", "p30.jpg", "p31.jpg", "p32.jpg", "p33.jpg", "p34.jpg"];
 let sampleBusy = false;
 async function loadSamplePhotos() {
   if (sampleBusy) return;
   const existing = new Set(state.docs.map((d) => d.name).filter(Boolean));
   const todo = SAMPLE_PHOTOS.filter((n) => !existing.has("サンプル " + n));
-  if (!todo.length) { setStatus("サンプル写真14枚はすべて登録済みです。検索を試してください。", "ok"); return; }
-  if (!confirm("サンプル写真 " + todo.length + " 枚（文字入りのプリント風10枚＋文字のない写真4枚）を読み込み、文字認識を実際に実行します。1〜3分かかります。よろしいですか？")) return;
+  if (!todo.length) { setStatus("サンプル写真34枚はすべて登録済みです。検索を試してください。", "ok"); return; }
+  if (!confirm("サンプル写真 " + todo.length + " 枚（文字入りのプリント風10枚＋文字のない一般写真24枚）を読み込み、文字認識を実際に実行します。枚数により数分かかります。よろしいですか？")) return;
   sampleBusy = true;
   $("sampleBtn").disabled = true;
   $("emptySample").disabled = true;
@@ -954,7 +1009,12 @@ function resolveDevice() {
   if (isIOS) return "wasm";
   return ("gpu" in navigator) ? "webgpu" : "wasm";
 }
-function pendingDocs(key) { return searchableDocs().filter((d) => !(d.vecs && d.vecs[key])); }
+function pendingDocs(key) {
+  const t = searchableDocs().filter((d) => !(d.vecs && d.vecs[key]));
+  if (key !== "eg2") return t;
+  // EmbeddingGemma 2 は文字のない写真も「見た目」でベクトル化できる
+  return t.concat(imageOnlyDocs().filter((d) => !(d.ivecs && d.ivecs.eg2)));
+}
 
 function updateVecMeta() {
   const m = currentMethod();
@@ -967,7 +1027,7 @@ function updateVecMeta() {
   const pend = pendingDocs(m).length;
   const ready = state.loadedKey === m && !!state.extractor;
   $("vecMeta").textContent = ready
-    ? (pend > 0 ? "このモデルで未ベクトル化：" + pend + " 件" : "検索対象 " + searchableDocs().length + " 件すべてベクトル化済み。検索できます。")
+    ? (pend > 0 ? "このモデルで未ベクトル化：" + pend + " 件" : "検索対象 " + (searchableDocs().length + (m === "eg2" ? imageOnlyDocs().length : 0)) + " 件すべて処理済み。検索できます。")
     : "先に「モデルを読み込む」を押してください。";
   $("vecBtn").hidden = !(ready && pend > 0);
 }
@@ -977,7 +1037,7 @@ function syncMethodSelects(v) {
   if ($("selMethodEasy").value !== v) $("selMethodEasy").value = v;
   $("cmpChk").disabled = (v === "bm25");
   if (v === "bm25") $("cmpChk").checked = false;
-  if (v === "eg2" && isIOS) setStatus("このモデルはサイズが大きいため（約157〜174MB）、iPhoneでは処理が中断する場合があります。パソコンでの利用を推奨します。", "warn");
+  if (v === "eg2" && isIOS) setStatus("このモデルはサイズが大きいため（約255MB）、iPhoneでは処理が中断する場合があります。パソコンでの利用を推奨します。", "warn");
   updateVecMeta();
 }
 $("selMethod").addEventListener("change", () => syncMethodSelects($("selMethod").value));
@@ -1004,16 +1064,41 @@ async function loadModel() {
   try {
     setPhase("モデル読み込み（" + m.short + "・" + device + "/" + dtype + "）");
     state.extractor = null;
-    const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1");
-    state.extractor = await pipeline("feature-extraction", m.id, {
-      device: device,
-      dtype: dtype,
-      progress_callback: (p) => {
-        if (!p || !p.file) return;
-        if (p.status === "progress") { progress[p.file] = p; renderProgress(); }
-        if (p.status === "done") { progress[p.file] = { file: p.file, progress: 100 }; renderProgress(); }
-      }
-    });
+    state.eg2 = null;
+    const T = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1");
+    const onProg = (p) => {
+      if (!p || !p.file) return;
+      if (p.status === "progress") { progress[p.file] = p; renderProgress(); }
+      if (p.status === "done") { progress[p.file] = { file: p.file, progress: 100 }; renderProgress(); }
+    };
+    if (key === "eg2") {
+      // EmbeddingGemma 2 はテキストと画像を同じベクトル空間に埋め込める。
+      // 公式の利用法（transformers.js 4.3.1 のモデルテストに準拠）：AutoProcessor + AutoModel を直接使う。
+      // 音声エンコーダ（約300M）は使わないため読み込まない（config.audio_config = null）。
+      const config = await T.AutoConfig.from_pretrained(m.id);
+      config.audio_config = null;
+      const mdl = await T.AutoModel.from_pretrained(m.id, {
+        config: config,
+        device: device,
+        dtype: { model: dtype, vision_encoder: "q4f16" },
+        progress_callback: onProg
+      });
+      const proc = await T.AutoProcessor.from_pretrained(m.id);
+      state.eg2 = { model: mdl, proc: proc, RawImage: T.RawImage };
+      // 既存コードと同じ呼び出し方（extractor([テキスト])）で使えるラッパー。
+      // sentence_embedding は平均プーリング＋正規化済み＝従来の pipeline 出力と同一（公式テストで一致確認済み）
+      state.extractor = async (texts) => {
+        const inputs = await proc(texts);
+        const out = await mdl(inputs);
+        return out.sentence_embedding;
+      };
+    } else {
+      state.extractor = await T.pipeline("feature-extraction", m.id, {
+        device: device,
+        dtype: dtype,
+        progress_callback: onProg
+      });
+    }
     state.loadedKey = key;
     state.loadMs = Math.round(performance.now() - t0);
     setPhase("ウォームアップ（" + m.short + "）");
@@ -1067,14 +1152,22 @@ async function vectorizeAll() {
   state.embedMs = [];
   try {
     for (let i = 0; i < pend.length; i++) {
-      setPhase("ベクトル化 " + (i + 1) + "/" + pend.length + "（" + m.short + "）");
-      setStatus("ベクトル化中 " + (i + 1) + "/" + pend.length + "（" + m.short + "）… 画面を切り替えないでください。");
+      const d = pend[i];
+      const asImage = !(d.text && d.text.trim());
+      setPhase((asImage ? "画像ベクトル化 " : "ベクトル化 ") + (i + 1) + "/" + pend.length + "（" + m.short + "）");
+      setStatus((asImage ? "写真の見た目をベクトル化中 " : "ベクトル化中 ") + (i + 1) + "/" + pend.length + "（" + m.short + "）… 画面を切り替えないでください。");
       const t0 = performance.now();
-      const out = await state.extractor([m.dp + pend[i].text], ENC_OPTS);
-      const v = toVec(out);
-      free(out);
-      state.embedMs.push(Math.round(performance.now() - t0));
-      await saveVec(pend[i], key, v);
+      if (asImage) {
+        const v = await embedImageDoc(d);
+        state.embedMs.push(Math.round(performance.now() - t0));
+        await saveIvec(d, key, v);
+      } else {
+        const out = await state.extractor([m.dp + d.text], ENC_OPTS);
+        const v = toVec(out);
+        free(out);
+        state.embedMs.push(Math.round(performance.now() - t0));
+        await saveVec(d, key, v);
+      }
       renderDocs();
       await sleep(40);
     }
@@ -1152,8 +1245,14 @@ async function runSearch() {
       free(out);
       const t1 = performance.now();
       results = searchableDocs()
-        .map((d) => ({ id: d.id, text: d.text, thumb: d.thumb, score: dot(qv, d.vecs[method]) }))
-        .sort((a, x) => x.score - a.score);
+        .map((d) => ({ id: d.id, text: d.text, thumb: d.thumb, score: dot(qv, d.vecs[method]) }));
+      if (method === "eg2") {
+        // 文字のない写真も「見た目」ベクトルで同じ土俵に乗せる（テキストと同一空間なので直接比較できる）
+        for (const d of imageOnlyDocs()) {
+          if (d.ivecs && d.ivecs.eg2) results.push({ id: d.id, text: "", thumb: d.thumb, score: dot(qv, d.ivecs.eg2) });
+        }
+      }
+      results.sort((a, x) => x.score - a.score);
       took = Math.round(performance.now() - t0);
       extra = "（クエリ処理 " + Math.round(t1 - t0) + " ms・次元 " + qv.length + "）";
       clearPhase();
@@ -1162,12 +1261,27 @@ async function runSearch() {
     const top = results.slice(0, 12).map((r, i) => ({ id: r.id, rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null }));
     state.lastSearch = { query: q, method: method, tookMs: took, results: top.map((r) => ({ rank: r.rank, score: r.score, text: r.text.slice(0, 80) })) };
     const label = method === "bm25" ? "BM25" : MODELS[method].short;
+    const targetN = (method === "bm25") ? searchableDocs().length : results.length;
     const res = $("result");
-    res.innerHTML = '<p class="meta">方式: ' + escapeHtml(label) + " ／ 対象 " + searchableDocs().length + " 件 ／ 所要 " + took + " ms " + extra + " ／ 類似度の高い順。タップで全文を表示</p>";
+    res.innerHTML = '<p class="meta">方式: ' + escapeHtml(label) + " ／ 対象 " + targetN + " 件 ／ 所要 " + took + " ms " + extra + " ／ 類似度の高い順。タップで全文を表示</p>";
     const g1 = document.createElement("div");
     g1.className = "grid";
     for (const r of top) g1.appendChild(makeTile(r, { rank: r.rank, score: r.score.toFixed(digits), label: label }));
     res.appendChild(g1);
+    // この方式では対象外になる「文字のない写真」を明示する（順位に乗らない理由を見える化）
+    if (method !== "eg2") {
+      const io = imageOnlyDocs();
+      if (io.length) {
+        const note = document.createElement("p");
+        note.className = "meta";
+        note.textContent = "文字のない写真 " + io.length + " 枚は、この検索方法では対象外です（文字を手がかりに探す方式のため）。検索方法を「AI意味検索・高性能（EmbeddingGemma 2）」にすると、見た目で検索できます。写真にメモを追加すれば、どの方式でも検索対象になります。";
+        res.appendChild(note);
+        const g0 = document.createElement("div");
+        g0.className = "grid";
+        for (const d of io.slice(0, 8)) g0.appendChild(makeTile(d, { tag: "対象外", alt: true }));
+        res.appendChild(g0);
+      }
+    }
     // 比較表示：意味検索の結果の下にキーワード一致（BM25）の上位3件を併記する
     if (method !== "bm25" && $("cmpChk").checked) {
       const bt0 = performance.now();
@@ -1447,21 +1561,23 @@ try { if (localStorage.getItem("ops-lab") === "1") document.body.classList.add("
 // ===== 書き出し =====
 function buildReport() {
   const counts = { e5s: 0, ruri30: 0, eg2: 0 };
-  let imageDocs = 0, noText = 0;
+  let imageDocs = 0, noText = 0, imgVecs = 0;
   for (const d of state.docs) {
     if (d.type === "image") imageDocs++;
     if (!(d.text && d.text.trim())) noText++;
     for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
+    if (d.ivecs && d.ivecs.eg2) imgVecs++;
   }
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.15",
+    app: "offline-photo-search v0.16",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
     noTextImages: noText,
     vectorized: counts,
+    imageVectorized_eg2: imgVecs,
     ocr: { selectedEngine: currentOcr(), loadMs: { tesseract: OCR.loadMs, ppu: OCR.ppuLoadMs }, avgMsPerImage: ocrAvg, items: OCR.items },
     evalResult: state.lastEval,
     loadedModel: state.loadedKey ? MODELS[state.loadedKey].id : null,
@@ -1513,7 +1629,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2, t3).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v015.csv";
+  a.download = "ocr-search-v016.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
