@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.16</title>
+<title>オフライン画像・文書 意味検索 v0.17</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
@@ -72,6 +72,10 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 .tile .badge.first{background:var(--accent)}
 .tile .badge.alt{background:rgba(110,110,115,.85)}
 .tile .pend{position:absolute;right:5px;top:5px;width:8px;height:8px;border-radius:50%;background:var(--warn);pointer-events:none}
+.exRow{display:flex;gap:6px;flex-wrap:wrap;margin:.45rem 0 .1rem}
+.exChip{width:auto;margin:0;padding:7px 12px;font-size:.8rem;font-weight:600;border-radius:999px;background:transparent;border:1px solid var(--line);color:var(--muted);cursor:pointer}
+.hl{background:rgba(255,205,60,.42);border-radius:4px;padding:0 2px}
+.dim{color:var(--muted)}
 .searchRow{display:flex;gap:8px;align-items:stretch;margin:.2rem 0 .2rem}
 .searchRow input{flex:1;border-radius:999px;padding:13px 18px}
 .searchRow button{width:auto;flex:none;border-radius:999px;padding:13px 24px;margin:0}
@@ -99,7 +103,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 <header class="bar">
   <div>
     <h1>オフライン画像・文書 意味検索</h1>
-    <p class="sub">写真やファイルの文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.16 — 一般写真サンプル20枚追加（計34枚）・文字のない写真の「見た目」検索（EmbeddingGemma 2）・メモ機能］</span></p>
+    <p class="sub">写真やファイルの文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.17 — コサイン類似度の数値表示・全件スクロール表示・段落検索＋一致箇所ハイライト・テキストサンプル刷新］</span></p>
   </div>
   <button id="labBtn" class="gear" type="button" aria-label="詳細設定の表示切替" title="詳細設定">⚙</button>
 </header>
@@ -111,7 +115,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
   <summary>はじめての方へ（使い方）</summary>
   <p class="meta" style="margin:.4rem 0 0">
     <b>1.</b> 「サンプル写真34枚で試す」を押すか、「カメラで撮る」でプリントやノートを撮影します（文字は自動で読み取られます）<br>
-    <b>2.</b> 検索欄に、調べたい内容を普段の言葉で入力します（例：「遠足に何を持っていく？」）<br>
+    <b>2.</b> 検索欄に調べたい内容を普段の言葉で入力します（検索欄の下にある例をタップするだけでも試せます）<br>
     <b>3.</b> 「検索」を押します。AIモデルの準備はページを開いたときに自動で始まります（初回のみダウンロードで1〜2分。2回目以降はすぐに使えます）<br>
     <b>ヒント：</b>「キーワード一致の結果と比較する」にチェックを入れると、同じ単語が含まれていなくても見つけられる意味検索の特徴を確認できます
   </p>
@@ -129,8 +133,13 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
   <p class="meta">モデルのダウンロードは初回のみです。2回目以降は端末内に保存されたものを使います（通信なしで動作）。</p>
   <span class="lbl">検索したい内容（普段の言葉でかまいません）</span>
   <div class="searchRow">
-    <input type="text" id="q" value="遠足の持ち物を知りたい" placeholder="例：遠足に何を持っていく？">
+    <input type="text" id="q" value="" placeholder="例：遠足に何を持っていく？">
     <button id="searchBtn" type="button">検索</button>
+  </div>
+  <div class="exRow">
+    <button class="exChip" type="button" data-q="遠足に何を持っていく？">遠足に何を持っていく？</button>
+    <button class="exChip" type="button" data-q="ごみはいつ出せばいい？">ごみはいつ出せばいい？</button>
+    <button class="exChip" type="button" data-q="ねこ">ねこ（見た目で検索）</button>
   </div>
   <div class="cmp"><input type="checkbox" id="cmpChk"><label for="cmpChk">キーワード一致（従来方式）の結果と比較する</label></div>
   <pre id="prog" hidden></pre>
@@ -145,8 +154,9 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
     <button id="camBtn" class="ghost" type="button">カメラで撮る（無音・ズーム可）</button>
     <button id="sampleBtn" class="ghost" type="button">サンプル写真34枚で試す</button>
   </div>
+  <button id="samplePdfBtn" class="ghost" type="button">サンプルPDFで段落検索を試す（3ページ・数秒）</button>
   <button id="sampleTextBtn" class="ghost labOnly" type="button">テキストサンプル10件を登録（ベンチ・検証用）</button>
-  <p class="meta">対応形式：画像（JPEG・PNGなど）／PDF／Word（.docx）／テキスト（.txt・.md・.csv）。写真の文字読み取りには1枚あたり数秒〜20秒かかります。内容はこの端末内にのみ保存され、外部には送信されません。長い文書は先頭約4,000文字が検索対象になります。</p>
+  <p class="meta">対応形式：画像（JPEG・PNGなど）／PDF／Word（.docx）／テキスト（.txt・.md・.csv）。写真の文字読み取りには1枚あたり数秒〜20秒かかります。内容はこの端末内にのみ保存され、外部には送信されません。長い文書（PDFなど）は段落ごとに分割して登録され、検索では「どの段落が一致したか」まで表示・ハイライトされます（1ファイル最大60段落）。</p>
   <span class="lbl labOnly">OCRエンジン（文字読み取りの方式）</span>
   <select id="selOcr" class="labOnly">
     <option value="tesseract" selected>Tesseract.js（軽量・オフライン可）</option>
@@ -412,16 +422,16 @@ async function embedImageDoc(d) {
 
 // ===== 文書の登録・一覧 =====
 const SAMPLES = [
-  "令和8年10月15日　保護者の皆様　2年1組担任　【遠足のお知らせ】　10月24日（金）に市立動物園へ遠足に行きます。持ち物：水筒、雨具、お弁当、しおり、敷物。集合：8時30分 体育館前／解散：15時頃 学校。雨天の場合は通常授業となりますので、授業の用意も持たせてください。",
-  "家庭科 調理実習のお知らせ（11月6日実施）　献立：ごはん・みそ汁・野菜炒め　持ち物：エプロン、三角巾、ふきん2枚、米1合、ハンドタオル。爪を短く切ってくること。欠席の場合、材料費の返金はできません。",
-  "技術科 実習プリント No.3　ボール盤による穴あけ加工　手順：1. 材料をバイスで固定する 2. 回転数を材料に合わせて設定（木材1500回転・アルミ800回転） 3. 保護メガネを着用し、切りくずは刷毛で払う。注意：手袋は巻き込まれるため着用禁止。",
-  "10/3 理科 実験記録　目的：金属と酸の反応を調べる　方法：うすい塩酸に亜鉛板を入れる　結果：気泡が発生。マッチの火を近づけるとポンと音がして燃えた→発生した気体は水素。考察：マグネシウムでも同じ反応が起こるか調べたい。",
-  "数学ノート 2章 二次関数　y=ax²+bx+c の頂点は平方完成で求める。例：y=x²-4x+1=(x-2)²-3 → 頂点(2,-3)・軸 x=2。テスト範囲はp.45〜58。符号の計算ミスに注意！",
-  "体育科より　校内持久走大会のお知らせ　日時：11月13日（木）9時スタート（雨天時は20日に延期）　コース：学校外周 男子3km・女子2km　持ち物：体操服、水筒、タオル。当日の朝、健康観察カードに保護者印をもらって提出してください。",
-  "技術科 エネルギー変換　はんだ付けのポイント　こて先温度は350℃前後。部品の足とランドを同時に温め、はんだを2〜3秒で流す。富士山型の仕上がりが良品。換気をして、やけどとこての置き場所に注意。",
-  "プログラミング実習メモ　micro:bitで温度計を作った。入力：温度センサー／処理：25度以上なら「あつい」と表示、未満なら温度を数字で表示。使ったブロック：ずっと、もし〜なら、LEDに表示。次回は明るさセンサーで自動点灯に挑戦する。",
-  "進路だより No.7　三者面談の実施について　期間：11月17日（月）〜21日（金）放課後　内容：2学期の学習状況と進路希望の確認。希望日時調査票を10月17日（金）までに担任へ提出してください。日程は後日、個別に連絡します。",
-  "学級連絡（10月9日）　明日の時間割変更：3限 理科→社会、5限 総合は体育館で学年集会。提出物：数学ワークp.30まで、家庭科レポート。図書室の本の返却期限は今週金曜日。上履きを持ち帰って洗ってくること。"
+  "【回覧】町内一斉清掃のお知らせ　10月26日（日）午前8時から公園周辺の清掃を行います。軍手とごみ袋は自治会で用意します。雨天の場合は中止です。参加できないときは班長まで連絡してください。",
+  "ごみ収集のルール：燃えるごみは月・木曜の朝8時まで。プラスチック容器は水曜。びん・かん・ペットボトルは第2・第4金曜。粗大ごみは事前に電話で申し込み、処理券を貼って出してください。",
+  "肉じゃがの作り方：じゃがいも4個、にんじん1本、玉ねぎ2個、牛肉200g。油で肉を炒め、野菜を加えて水400mlとしょうゆ・みりん・砂糖各大さじ3で煮る。弱火で15分、味がしみたら完成。",
+  "自宅Wi-Fiの設定メモ：ルーター背面にネットワーク名（SSID）とパスワードが書いてある。つながらないときは電源プラグを抜いて30秒待ってから差し直す。直らなければ本体のリセットボタンを長押しする。",
+  "処方薬の飲み方：1日3回、毎食後に1錠。飲み忘れたら気づいたときに1回分を飲む。次の分とまとめて2回分を飲まないこと。5日分。症状が続くときは再受診してください。",
+  "バスケットボール部の連絡：土曜日の練習試合は市民体育館に9時集合。ユニフォーム・タオル・飲み物を持ってくること。保護者の送迎は体育館裏の駐車場を使ってください。欠席の連絡は金曜までに顧問へ。",
+  "市立図書館の利用案内：貸出は1人10冊まで・2週間。返却は閉館後もブックポストで可能。貸出期間の延長は1回まで、電話かウェブサイトで手続きできます。DVDなどの視聴覚資料は1週間で延長不可。",
+  "非常持ち出し品のチェックリスト：飲料水（1人1日3リットル×3日分）、非常食、懐中電灯、乾電池、モバイルバッテリー、救急セット、常備薬、現金、防寒具。年2回、食品の期限を確認して入れ替える。",
+  "アルバイトのシフト連絡：来週は火曜17時〜21時と土曜10時〜16時。変更の希望は3日前までにアプリから申請してください。遅刻しそうなときは必ず店舗に電話を入れること。",
+  "健康診断のお知らせ：11月20日（水）午前に実施します。前日の21時以降は食事をとらないでください（水・お茶は可）。当日は問診票と保険証を持参。バリウム検査の人は検査後に下剤を受け取ってください。"
 ];
 function newId() { return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
 function searchableDocs() { return state.docs.filter((d) => d.text && d.text.trim()); }
@@ -433,16 +443,17 @@ function renderDocs() {
     if (!(d.text && d.text.trim())) noText++;
     for (const k of Object.keys(counts)) if (d.vecs && d.vecs[k]) counts[k]++;
   }
-  const shownN = Math.min(state.docs.length, 24);
+  const sorted = state.docs.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+  const vis = sorted.filter((d) => !d.group || d.part === 1); // 分割した文書は代表（1段落目）だけ一覧に出す
   $("dbMeta").textContent = state.docs.length === 0 ? "" :
-    "登録 " + state.docs.length + " 件（うち文字なし画像 " + noText + " 件）" +
-    (state.docs.length > 24 ? "・最新 " + shownN + " 件を表示" : "") +
+    "登録 " + vis.length + " 件（うち文字なし画像 " + noText + " 件" +
+    (state.docs.length > vis.length ? "・長い文書は計 " + state.docs.length + " 段落に分割済み" : "") + "）" +
+    (vis.length > 24 ? "・最新 24 件を表示" : "") +
     "。タップすると拡大表示・削除ができます。";
   $("emptyState").hidden = state.docs.length !== 0;
   const grid = $("docGrid");
   grid.innerHTML = "";
-  const sorted = state.docs.slice().sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-  for (const d of sorted.slice(0, 24)) grid.appendChild(makeTile(d, null));
+  for (const d of vis.slice(0, 24)) grid.appendChild(makeTile(d, null));
   updateVecMeta();
 }
 
@@ -459,13 +470,16 @@ function makeTile(d, info) {
   } else {
     const t = document.createElement("div");
     t.className = "tdoc";
-    t.textContent = (d.text && d.text.trim()) ? d.text.slice(0, 64) : "（文字なし画像）";
+    t.textContent = (!info && d.group)
+      ? "📄" + (d.name || "文書") + "（全" + (d.parts || "?") + "段落）"
+      : ((d.text && d.text.trim()) ? d.text.slice(0, 64) : "（文字なし画像）");
     b.appendChild(t);
   }
   if (info) {
     const g = document.createElement("span");
     g.className = "badge" + (info.alt ? " alt" : (info.rank === 1 ? " first" : ""));
-    g.textContent = info.tag || (info.rank + "位");
+    // 順位ではなく類似度の数値を表示（Edge Gallery と同じ見せ方）。1位のみ青で強調
+    g.textContent = info.tag || info.score || (info.rank + "位");
     b.appendChild(g);
   } else if (state.loadedKey && d.text && d.text.trim() && !(d.vecs && d.vecs[state.loadedKey])) {
     const p = document.createElement("span");
@@ -483,7 +497,7 @@ function openViewer(d, info) {
   viewDocRef = d;
   const parts = [];
   if (info && info.tag) parts.push("この検索方法では対象外（文字のない写真）");
-  else if (info) parts.push(info.rank + "位・スコア " + info.score + (info.label ? "（" + info.label + "）" : ""));
+  else if (info) parts.push(info.rank + "位・類似度 " + info.score + (info.img ? "・画像の見た目による一致" : "") + (info.label ? "（" + info.label + "）" : ""));
   if (d.name) parts.push(d.name);
   parts.push(d.type === "image" ? "写真" : d.type === "pdf" ? "PDF" : d.type === "docx" ? "Word" : "テキスト");
   if (d.ocr) parts.push("文字認識 " + (OCR_LABEL[d.ocr.engine] || d.ocr.engine) + "・" + d.ocr.ms + "ms・" + d.ocr.chars + "文字");
@@ -493,9 +507,21 @@ function openViewer(d, info) {
   if (pic) { $("viewImg").src = pic; $("viewImg").hidden = false; }
   else { $("viewImg").hidden = true; }
   const hasText = !!(d.text && d.text.trim());
-  $("viewText").textContent = hasText ? d.text : "（文字は見つかりませんでした。写真として保管されています）";
-  // 写真があるときは写真を主役に（文字は折りたたみ）。テキスト文書は最初から全文を表示
-  $("viewTextWrap").open = !pic;
+  if (d.group) {
+    // 分割した文書：全段落をつなげて表示し、検索で一致した段落を黄色でハイライトする
+    const sibs = state.docs.filter((x) => x.group === d.group).sort((a, b) => (a.part || 0) - (b.part || 0));
+    const hi = !!info; // 検索結果から開いたときだけ当該段落を強調
+    $("viewText").innerHTML = sibs.map((x) => {
+      const t = escapeHtml(x.text || "");
+      return (hi && x.id === d.id) ? '<span class="hl">' + t + "</span>" : (hi ? '<span class="dim">' + t + "</span>" : t);
+    }).join("<br><br>");
+    if (hi) parts.push("一致した段落：" + (d.part || "?") + "/" + (d.parts || "?") + "（黄色の部分）");
+    $("viewMeta").textContent = parts.join("　");
+  } else {
+    $("viewText").textContent = hasText ? d.text : "（文字は見つかりませんでした。写真として保管されています）";
+  }
+  // 写真があるときは写真を主役に（文字は折りたたみ）。テキスト文書・分割文書は最初から全文を表示
+  $("viewTextWrap").open = !pic || !!d.group;
   $("viewDel").hidden = !d.id;
   $("viewOverlay").hidden = false;
 }
@@ -520,9 +546,17 @@ $("viewNoteBtn").addEventListener("click", async () => {
 });
 $("viewDel").addEventListener("click", async () => {
   if (!viewDocRef || !viewDocRef.id) return;
-  if (!confirm("この文書を削除しますか？")) return;
-  await dbDel(viewDocRef.id);
-  state.docs = state.docs.filter((x) => x.id !== viewDocRef.id);
+  const real = state.docs.find((x) => x.id === viewDocRef.id) || viewDocRef;
+  if (real.group) {
+    const sibs = state.docs.filter((x) => x.group === real.group);
+    if (!confirm("この文書（" + (real.name || "分割文書") + "・全" + sibs.length + "段落）をまとめて削除しますか？")) return;
+    for (const x of sibs) await dbDel(x.id);
+    state.docs = state.docs.filter((x) => x.group !== real.group);
+  } else {
+    if (!confirm("この文書を削除しますか？")) return;
+    await dbDel(real.id);
+    state.docs = state.docs.filter((x) => x.id !== real.id);
+  }
   $("viewOverlay").hidden = true;
   renderDocs();
 });
@@ -595,6 +629,30 @@ async function loadSamplePhotos() {
 }
 $("sampleBtn").addEventListener("click", loadSamplePhotos);
 $("emptySample").addEventListener("click", loadSamplePhotos);
+
+// サンプルPDF（samples/sample-guide.pdf・自作の「図書室利用の手引き」3ページ）で段落検索を体験
+let pdfBusy = false;
+$("samplePdfBtn").addEventListener("click", async () => {
+  if (pdfBusy) return;
+  if (state.docs.some((d) => d.name === "サンプル 図書室利用の手引き.pdf")) {
+    setStatus("サンプルPDFは登録済みです。「本は何冊まで借りられる？」「返すのが遅れたらどうなる？」などで検索してみてください。", "ok");
+    return;
+  }
+  pdfBusy = true;
+  $("samplePdfBtn").disabled = true;
+  try {
+    setStatus("サンプルPDFを取得しています…");
+    const res = await fetch("samples/sample-guide.pdf");
+    if (!res.ok) throw new Error("サンプルPDFを取得できませんでした（HTTP " + res.status + "）。初回はオンラインでお試しください");
+    await importFiles([new File([await res.blob()], "サンプル 図書室利用の手引き.pdf", { type: "application/pdf" })]);
+    setStatus("✅ サンプルPDFを段落に分割して登録しました。「本は何冊まで借りられる？」「返すのが遅れたらどうなる？」などで検索すると、一致した段落が黄色でハイライトされます。", "ok");
+  } catch (e) {
+    setStatus("❌ サンプルPDFの読み込みに失敗：" + (e && e.message ? e.message : e), "ng");
+  } finally {
+    pdfBusy = false;
+    $("samplePdfBtn").disabled = false;
+  }
+});
 $("clearBtn").addEventListener("click", async () => {
   if (!confirm("登録した文書・写真をすべて削除します。よろしいですか？")) return;
   await dbClear();
@@ -754,10 +812,42 @@ async function getMammoth() {
   return MAMMOTH;
 }
 
+// 長い文書を段落（チャンク）に分割する。改行・句点を優先した自然な区切り
+function splitChunks(text, size) {
+  const t = (text || "").replace(/[ \t　]+/g, " ").trim();
+  if (!t) return [];
+  if (t.length <= size) return [t];
+  const pieces = [];
+  for (const para of t.split(/\n+/)) {
+    let rest = para.trim();
+    while (rest.length > size) {
+      let cut = -1;
+      for (const sep of ["。", "．", "？", "！", "?", "!"]) {
+        const k = rest.lastIndexOf(sep, size);
+        if (k > cut) cut = k;
+      }
+      if (cut < size * 0.4) cut = size - 1;
+      pieces.push(rest.slice(0, cut + 1));
+      rest = rest.slice(cut + 1).trim();
+    }
+    if (rest) pieces.push(rest);
+  }
+  // 短すぎる断片は前の段落にまとめる
+  const out = [];
+  let buf = "";
+  for (const p of pieces) {
+    if ((buf + " " + p).trim().length <= size) buf = (buf ? buf + " " : "") + p;
+    else { if (buf) out.push(buf); buf = p; }
+  }
+  if (buf) out.push(buf);
+  return out;
+}
+
 // テキストが取り出せたファイルを文書として保存する（画像以外の共通経路）
-async function addFileDoc(name, text, thumb, kind) {
+// extra = { group, part, parts }：長い文書を段落に分割したときのまとまり情報
+async function addFileDoc(name, text, thumb, kind, extra) {
   const t = (text || "").replace(/\s+/g, " ").trim().slice(0, MAX_DOC_CHARS);
-  const doc = { id: newId(), type: kind, name: name || null, text: t, thumb: thumb || null, createdAt: new Date().toISOString(), vecs: {} };
+  const doc = Object.assign({ id: newId(), type: kind, name: name || null, text: t, thumb: thumb || null, createdAt: new Date().toISOString(), vecs: {} }, extra || {});
   await dbPut(doc);
   state.docs.push(doc);
   if (t && state.extractor && state.loadedKey) {
@@ -816,6 +906,19 @@ async function extractPdf(file, name) {
   return { text: ocrText, thumb: thumb };
 }
 
+// ファイル1つを段落に分割して登録する（検索は段落単位＝「どの段落が一致したか」まで分かる）
+async function addChunkedDoc(nm, rawText, thumb, kind) {
+  const chunks = splitChunks(rawText, 450).slice(0, 60);
+  if (!chunks.length) { await addFileDoc(nm, "", thumb, kind); return 0; }
+  if (chunks.length === 1) { await addFileDoc(nm, chunks[0], thumb, kind); return 1; }
+  const gid = newId();
+  for (let ci = 0; ci < chunks.length; ci++) {
+    setStatus("登録中（" + nm + "・段落 " + (ci + 1) + "/" + chunks.length + "）…");
+    await addFileDoc(nm, chunks[ci], ci === 0 ? thumb : null, kind, { group: gid, part: ci + 1, parts: chunks.length });
+  }
+  return chunks.length;
+}
+
 async function importFiles(files) {
   files = Array.from(files || []);
   if (!files.length) return;
@@ -838,16 +941,16 @@ async function importFiles(files) {
       } else if (isPdf) {
         setStatus("PDFを読み込んでいます（" + nm + "）… 初回のみ読み取り用ライブラリを取得します。");
         const r = await extractPdf(f, nm);
-        const n = await addFileDoc(nm, r.text, r.thumb, "pdf");
+        const n = await addChunkedDoc(nm, r.text, r.thumb, "pdf");
         if (n > 0) ok++; else noText++;
       } else if (isDocx) {
         setStatus("Word文書を読み込んでいます（" + nm + "）… 初回のみ読み取り用ライブラリを取得します。");
         const mam = await getMammoth();
         const r = await mam.extractRawText({ arrayBuffer: await f.arrayBuffer() });
-        const n = await addFileDoc(nm, r.value || "", null, "docx");
+        const n = await addChunkedDoc(nm, r.value || "", null, "docx");
         if (n > 0) ok++; else noText++;
       } else if (isTxt) {
-        const n = await addFileDoc(nm, await f.text(), null, "text");
+        const n = await addChunkedDoc(nm, await f.text(), null, "text");
         if (n > 0) ok++; else noText++;
       } else {
         throw new Error("対応していない形式です（画像・PDF・.docx・.txt/.md/.csv に対応。旧形式の .doc は .docx に変換してください）");
@@ -1249,7 +1352,7 @@ async function runSearch() {
       if (method === "eg2") {
         // 文字のない写真も「見た目」ベクトルで同じ土俵に乗せる（テキストと同一空間なので直接比較できる）
         for (const d of imageOnlyDocs()) {
-          if (d.ivecs && d.ivecs.eg2) results.push({ id: d.id, text: "", thumb: d.thumb, score: dot(qv, d.ivecs.eg2) });
+          if (d.ivecs && d.ivecs.eg2) results.push({ id: d.id, text: "", thumb: d.thumb, byImage: true, score: dot(qv, d.ivecs.eg2) });
         }
       }
       results.sort((a, x) => x.score - a.score);
@@ -1258,15 +1361,19 @@ async function runSearch() {
       clearPhase();
     }
     const digits = method === "bm25" ? 2 : 3;
-    const top = results.slice(0, 12).map((r, i) => ({ id: r.id, rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null }));
-    state.lastSearch = { query: q, method: method, tookMs: took, results: top.map((r) => ({ rank: r.rank, score: r.score, text: r.text.slice(0, 80) })) };
+    // 全件をコサイン類似度（BM25は一致スコア）の高い順に表示する（表示上限200件）
+    const top = results.slice(0, 200).map((r, i) => ({ id: r.id, rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null, byImage: !!r.byImage }));
+    state.lastSearch = { query: q, method: method, tookMs: took, results: top.slice(0, 50).map((r) => ({ rank: r.rank, score: r.score, byImage: r.byImage || undefined, text: r.text.slice(0, 80) })) };
     const label = method === "bm25" ? "BM25" : MODELS[method].short;
     const targetN = (method === "bm25") ? searchableDocs().length : results.length;
     const res = $("result");
-    res.innerHTML = '<p class="meta">方式: ' + escapeHtml(label) + " ／ 対象 " + targetN + " 件 ／ 所要 " + took + " ms " + extra + " ／ 類似度の高い順。タップで全文を表示</p>";
+    res.innerHTML = '<p class="meta">方式: ' + escapeHtml(label) + " ／ 対象 " + targetN + " 件を" +
+      (method === "bm25" ? "一致スコア" : "コサイン類似度（1に近いほど意味が近い）") +
+      "の高い順にすべて表示 ／ 所要 " + took + " ms " + extra + " ／ タイルの数字が類似度。タップで詳細</p>" +
+      (method !== "bm25" && top.length && top[0].score < 0.25 ? '<p class="meta">最上位でも類似度が低めです。該当する文書が登録されていない可能性があります。</p>' : "");
     const g1 = document.createElement("div");
     g1.className = "grid";
-    for (const r of top) g1.appendChild(makeTile(r, { rank: r.rank, score: r.score.toFixed(digits), label: label }));
+    for (const r of top) g1.appendChild(makeTile(r, { rank: r.rank, score: r.score.toFixed(digits), img: r.byImage, label: label }));
     res.appendChild(g1);
     // この方式では対象外になる「文字のない写真」を明示する（順位に乗らない理由を見える化）
     if (method !== "eg2") {
@@ -1319,6 +1426,10 @@ async function runSearch() {
 }
 $("searchBtn").addEventListener("click", runSearch);
 $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runSearch(); } });
+// 検索例のチップ：タップでそのまま検索を実行
+for (const b of document.querySelectorAll(".exChip")) {
+  b.addEventListener("click", () => { $("q").value = b.dataset.q || b.textContent; runSearch(); });
+}
 
 // ===== 精度評価（ミニベンチ：RQ3用） =====
 const EVAL_DEFAULT = {
@@ -1571,7 +1682,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.16",
+    app: "offline-photo-search v0.17",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
@@ -1629,7 +1740,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2, t3).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v016.csv";
+  a.download = "ocr-search-v017.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
