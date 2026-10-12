@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1a7f5a">
-<title>オフライン画像・文書 意味検索 v0.17</title>
+<title>オフライン画像・文書 意味検索 v0.18</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <style>
@@ -103,7 +103,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 <header class="bar">
   <div>
     <h1>オフライン画像・文書 意味検索</h1>
-    <p class="sub">写真やファイルの文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.17 — コサイン類似度の数値表示・全件スクロール表示・段落検索＋一致箇所ハイライト・テキストサンプル刷新］</span></p>
+    <p class="sub">写真やファイルの文字をAIが読み取り、言葉の意味で検索できるアプリです。一度準備すれば、インターネット接続がなくても動作します。<span class="labOnly">［v0.18 — ハイブリッド検索（意味＋キーワードのRRF融合）既定ON・一覧全件表示・OCRノイズ除去］</span></p>
   </div>
   <button id="labBtn" class="gear" type="button" aria-label="詳細設定の表示切替" title="詳細設定">⚙</button>
 </header>
@@ -195,6 +195,7 @@ button.tile:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
   </select>
   </div>
   <p class="meta" id="methodNote"></p>
+  <div class="cmp"><input type="checkbox" id="pureVec"><label for="pureVec">ハイブリッド融合を無効化（純粋ベクトル検索・RQ3の計測用）</label></div>
   <button id="loadBtn" type="button" disabled>モデルを読み込む</button>
   <p class="meta" id="vecMeta"></p>
   <button id="vecBtn" class="ghost" type="button" hidden>未処理の文書を全件ベクトル化（1件ずつ・途中保存）</button>
@@ -448,12 +449,11 @@ function renderDocs() {
   $("dbMeta").textContent = state.docs.length === 0 ? "" :
     "登録 " + vis.length + " 件（うち文字なし画像 " + noText + " 件" +
     (state.docs.length > vis.length ? "・長い文書は計 " + state.docs.length + " 段落に分割済み" : "") + "）" +
-    (vis.length > 24 ? "・最新 24 件を表示" : "") +
-    "。タップすると拡大表示・削除ができます。";
+    "。新しい順にすべて表示。タップすると拡大表示・削除ができます。";
   $("emptyState").hidden = state.docs.length !== 0;
   const grid = $("docGrid");
   grid.innerHTML = "";
-  for (const d of vis.slice(0, 24)) grid.appendChild(makeTile(d, null));
+  for (const d of vis) grid.appendChild(makeTile(d, null));
   updateVecMeta();
 }
 
@@ -497,7 +497,7 @@ function openViewer(d, info) {
   viewDocRef = d;
   const parts = [];
   if (info && info.tag) parts.push("この検索方法では対象外（文字のない写真）");
-  else if (info) parts.push(info.rank + "位・類似度 " + info.score + (info.img ? "・画像の見た目による一致" : "") + (info.label ? "（" + info.label + "）" : ""));
+  else if (info) parts.push(info.rank + "位・類似度 " + info.score + (info.bm ? "・キーワード一致 " + info.bm + " 位" : "") + (info.img ? "・画像の見た目による一致" : "") + (info.label ? "（" + info.label + "）" : ""));
   if (d.name) parts.push(d.name);
   parts.push(d.type === "image" ? "写真" : d.type === "pdf" ? "PDF" : d.type === "docx" ? "Word" : "テキスト");
   if (d.ocr) parts.push("文字認識 " + (OCR_LABEL[d.ocr.engine] || d.ocr.engine) + "・" + d.ocr.ms + "ms・" + d.ocr.chars + "文字");
@@ -737,12 +737,21 @@ async function recognizeImage(engine, canvas) {
 }
 
 // 画像1枚（canvas）→ OCR → 判定 → 保存。ファイル・カメラ共通の処理
+// OCR結果の軽いノイズ除去：誤認識されやすい記号や同一記号の長い連続を整理して、検索の質を上げる
+function cleanOcr(raw) {
+  return String(raw || "")
+    .replace(/[|｜"“”'‘’`´~～^＾_＿=＝\\<>＜＞«»]/g, " ")
+    .replace(/([^0-9０-９])\1{3,}/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function processCanvas(canvas, thumb, name) {
   const engine = currentOcr();
   const t0 = performance.now();
   const rec = await recognizeImage(engine, canvas);
   const ms = Math.round(performance.now() - t0);
-  const text = rec.raw.replace(/\s+/g, " ").trim();
+  const text = cleanOcr(rec.raw);
   const clean = text.replace(/[\s　]/g, "");
   const conf = rec.conf;
   const judged = clean.length >= 4; // 文字有無の簡易判定（適応分岐）
@@ -1355,15 +1364,33 @@ async function runSearch() {
           if (d.ivecs && d.ivecs.eg2) results.push({ id: d.id, text: "", thumb: d.thumb, byImage: true, score: dot(qv, d.ivecs.eg2) });
         }
       }
-      results.sort((a, x) => x.score - a.score);
+      // 既定はハイブリッド検索：意味ベクトルの順位とキーワード一致（BM25）の順位を
+      // RRF（Reciprocal Rank Fusion・k=60）で融合して並べる。実用検索の定石で、
+      // 「同じ語を含む確実な候補」と「言い換えでも意味が近い候補」の両方を上位に出せる。
+      // タイルの数値は従来どおりコサイン類似度（並び順だけが融合順になる）。
+      if (!$("pureVec").checked) {
+        const K = 60;
+        const vr = new Map();
+        results.slice().sort((a, x) => x.score - a.score).forEach((r, i) => vr.set(r.id, i + 1));
+        const br = new Map();
+        bm25Search(q).forEach((r, i) => { if (r.score > 0) br.set(r.id, i + 1); });
+        for (const r of results) {
+          r.bmRank = br.get(r.id) || null;
+          r.fused = 1 / (K + (vr.get(r.id) || 999)) + (r.bmRank ? 1 / (K + r.bmRank) : 0);
+        }
+        results.sort((a, x) => x.fused - a.fused);
+        extra += "／ハイブリッド（意味＋キーワード融合）で並べ替え";
+      } else {
+        results.sort((a, x) => x.score - a.score);
+      }
       took = Math.round(performance.now() - t0);
       extra = "（クエリ処理 " + Math.round(t1 - t0) + " ms・次元 " + qv.length + "）";
       clearPhase();
     }
     const digits = method === "bm25" ? 2 : 3;
     // 全件をコサイン類似度（BM25は一致スコア）の高い順に表示する（表示上限200件）
-    const top = results.slice(0, 200).map((r, i) => ({ id: r.id, rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null, byImage: !!r.byImage }));
-    state.lastSearch = { query: q, method: method, tookMs: took, results: top.slice(0, 50).map((r) => ({ rank: r.rank, score: r.score, byImage: r.byImage || undefined, text: r.text.slice(0, 80) })) };
+    const top = results.slice(0, 200).map((r, i) => ({ id: r.id, rank: i + 1, score: Number(r.score.toFixed(4)), text: r.text, thumb: r.thumb || null, byImage: !!r.byImage, bmRank: r.bmRank || null }));
+    state.lastSearch = { query: q, method: method, hybrid: !$("pureVec").checked && method !== "bm25", tookMs: took, results: top.slice(0, 50).map((r) => ({ rank: r.rank, score: r.score, bmRank: r.bmRank || undefined, byImage: r.byImage || undefined, text: r.text.slice(0, 80) })) };
     const label = method === "bm25" ? "BM25" : MODELS[method].short;
     const targetN = (method === "bm25") ? searchableDocs().length : results.length;
     const res = $("result");
@@ -1373,7 +1400,7 @@ async function runSearch() {
       (method !== "bm25" && top.length && top[0].score < 0.25 ? '<p class="meta">最上位でも類似度が低めです。該当する文書が登録されていない可能性があります。</p>' : "");
     const g1 = document.createElement("div");
     g1.className = "grid";
-    for (const r of top) g1.appendChild(makeTile(r, { rank: r.rank, score: r.score.toFixed(digits), img: r.byImage, label: label }));
+    for (const r of top) g1.appendChild(makeTile(r, { rank: r.rank, score: r.score.toFixed(digits), img: r.byImage, bm: r.bmRank, label: label }));
     res.appendChild(g1);
     // この方式では対象外になる「文字のない写真」を明示する（順位に乗らない理由を見える化）
     if (method !== "eg2") {
@@ -1682,7 +1709,7 @@ function buildReport() {
   const avg = state.embedMs.length ? Math.round(state.embedMs.reduce((a, x) => a + x, 0) / state.embedMs.length) : null;
   const ocrAvg = OCR.items.length ? Math.round(OCR.items.reduce((a, x) => a + x.ms, 0) / OCR.items.length) : null;
   return {
-    app: "offline-photo-search v0.17",
+    app: "offline-photo-search v0.18",
     checkedAt: new Date().toISOString(),
     docCount: state.docs.length,
     imageDocs: imageDocs,
@@ -1740,7 +1767,7 @@ $("dlCsv").addEventListener("click", () => {
   const csv = "﻿" + head.concat(t1, t2, t3).map((row) => row.map(esc).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "ocr-search-v017.csv";
+  a.download = "ocr-search-v018.csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
